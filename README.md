@@ -16,11 +16,12 @@ Built with **Google Sheets** (database + audit ledger) and **Google Apps Script*
 (backend + web app). Backend is 100% English; the web app UI is available in
 English and Portuguese.
 
-## Features (v0.1)
+## Features (v0.2)
 
 | Area | What it does |
 | --- | --- |
-| Market modes | `P2P` — users bet against each other in a pool (pari-mutuel). `HOUSE` — the house sets the prices and is the counterparty. |
+| Market modes | `P2P` — users bet against each other in a pool (pari-mutuel). `HOUSE` — the house sets the prices and is the counterparty. `LMSR` — automated market maker: prices driven by bettors' money but damped by a liquidity parameter, locked at purchase, house loss capped at `b × ln(outcomes)`. |
+| Admin view | Owner-only tab in the web app: ledger audit, KPIs, house risk per outcome, create / close / settle / void markets, users and credits, settings. |
 | Odds formats | Decimal odds (e.g. `2.50`) or prediction-market style (probability `40%` / price `0.40` per share that pays `1.00`). |
 | House fee | Per market, `0%` or more. Baked into the displayed odds and never shown to users. |
 | Ledger | Every movement of credits is one row: `BET`, `PAYOUT`, `REFUND`, `FEE`, `HOUSE_PNL`, `DEPOSIT`, `ADJUSTMENT`. Each settled market sums to zero. |
@@ -44,17 +45,19 @@ src/               Apps Script project (pushed with clasp)
   Index.html       Web app shell
   Styles.html      CSS
   I18n.html        UI strings (en, pt)
-  Client.html      Front-end logic
+  Client.html      Front-end logic (bettor view)
+  AdminClient.html Front-end logic (admin view)
 tests/             Node tests: odds math + end-to-end backend on a mock sheet
-tools/             Apps Script mock and local preview server
+tools/             Apps Script mock, local preview server, deploy bundler
 docs/              Model and setup notes
 ```
 
 ## Quick start
 
 ```bash
-npm test          # 17 tests, no Google account needed
+npm test          # no Google account needed
 npm run preview   # http://localhost:8787 with demo data
+npm run bundle    # dist/Code.gs + dist/Index.html to paste into Apps Script
 ```
 
 ## License

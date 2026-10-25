@@ -53,6 +53,37 @@ price_i = min(p_i × (1 + fee), MAX_PRICE)      odds_i = 1 / price_i
 - The house can lose: `HOUSE_PNL = Σ stakes − Σ payouts`.
 - v0.1 prices are static (they do not react to bets).
 
+### `LMSR` — automated market maker (damped, money-driven)
+
+The problem with a pure pool: odds are `total / money on your side`, so a
+1,000 bet into a 100 pool *is* the pool — the price jumps and the big bettor
+dilutes himself. Damping needs someone to provide liquidity. In LMSR
+(Logarithmic Market Scoring Rule, used by prediction markets) the house does,
+with a known worst case.
+
+```
+q_i      = shares sold of outcome i (each pays 1.00 if i wins)
+C(q)     = b × ln( Σ_j e^(q_j / b) )               cost function
+price_i  = e^(q_i / b) / Σ_j e^(q_j / b)            prices sum to 1
+buy      = pay C(q after) − C(q before)              closed form in Odds.lmsrSharesFor
+```
+
+- **b is the damping knob.** Larger b → calmer prices, more subsidy.
+  Example, 2 outcomes at 50/50, one bet of 1,000:
+
+  | b | Yes price after |
+  | --- | --- |
+  | 100 | ≈ 100% |
+  | 300 | ≈ 98% |
+  | 1,000 | ≈ 82% |
+  | 3,000 | ≈ 64% |
+
+- **Price locked at purchase**: the bet buys a fixed number of shares; the
+  payout is known. The bet slip shows the price impact (e.g. `57% → 93%`).
+- **Fee**: taken from the stake first, the rest buys shares. Displayed price = `price_i / (1 − fee)`.
+- **House worst case = b × ln(n)** (minus fees collected). Example: b = 300, 2 outcomes → 207.94.
+- Money still drives prices — no admin probabilities needed. Prices start equal.
+
 ## Is the fee really invisible?
 
 The UI never shows the fee, the pools or the seed. But because odds are net of
@@ -73,7 +104,7 @@ of view of `Account Id`.
 | `PAYOUT` | user | + | Winning bet at settlement (`Related Txn Id` = bet) |
 | `REFUND` | user | + | Market void, or nobody backed the winner |
 | `FEE` | `HOUSE` | + | P2P settlement: fee + breakage |
-| `HOUSE_PNL` | `HOUSE` | ± | HOUSE settlement: stakes − payouts |
+| `HOUSE_PNL` | `HOUSE` | ± | HOUSE / LMSR settlement: stakes − payouts |
 | `ADJUSTMENT` | any | ± | Manual correction (never edit old rows) |
 
 **Invariant:** the rows of every settled or void market add up to exactly zero.
@@ -85,5 +116,5 @@ Balances are never stored; they are always `Σ Amount` per account.
 
 1. Real identities: deploy the web app for "Anyone with a Google account" and use the signed-in email instead of the demo user picker.
 2. HOUSE odds that react to exposure (move the price when one side gets too much money).
-3. A true prediction-market maker (LMSR): price locked at purchase *and* driven by bettors' money; the house subsidises liquidity with a bounded maximum loss.
-4. Limits per user / per market, market close by trigger, admin web panel.
+3. Limits per user / per market, market close by trigger.
+4. Selling shares back to an LMSR market before close (a cash-out by design choice — currently off).

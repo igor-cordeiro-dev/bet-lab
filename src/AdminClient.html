@@ -1,0 +1,213 @@
+<script>
+  // Admin view. Only shown when the server says the viewer is the owner; every
+  // api_admin* call is checked again on the server.
+  const admin = { data: null, loading: false, armed: '' };
+
+  const money = (x) => (x === null || x === undefined ? '–' : nf(x, 2));
+  const pct = (x) => nf(x * 100, 1) + '%';
+  const signed = (x) => (x === null || x === undefined ? '–'
+    : '<span class="' + (x < 0 ? 'neg' : x > 0 ? 'pos' : '') + '">' + money(x) + '</span>');
+
+  function loadAdmin() {
+    if (admin.loading) return Promise.resolve();
+    admin.loading = true;
+    return call('api_adminOverview')
+      .then((d) => { admin.data = d; renderAdmin(); })
+      .catch((e) => toast(errText(e)))
+      .finally(() => { admin.loading = false; });
+  }
+
+  /** Runs an admin action, then refreshes both views. */
+  function adminDo(fn, args, okMsg) {
+    admin.armed = '';
+    return call(fn, ...args)
+      .then(() => { toast(okMsg || t('aDone')); return Promise.all([loadAdmin(), reload()]); })
+      .catch((e) => { toast(errText(e)); renderAdmin(); });
+  }
+
+  // ---------- rendering ----------
+
+  function renderAdmin() {
+    const d = admin.data;
+    if (!d) return;
+
+    const audit = $('adminAudit');
+    audit.className = 'audit ' + (d.audit.ok ? 'ok' : 'bad');
+    audit.textContent = d.audit.ok ? t('auditOk') : t('auditBad') + ' ' + d.audit.issues.join(' · ');
+
+    const k = d.kpis;
+    const tiles = [
+      ['kUsers', nf(k.users, 0)],
+      ['kCreditsHeld', money(k.creditsHeld)],
+      ['kHouseBalance', signed(k.houseBalance)],
+      ['kOpenMarkets', nf(k.openMarkets, 0)],
+      ['kOpenHandle', money(k.openHandle)],
+      ['kWorstCase', signed(k.worstCaseOpen)],
+      ['kHandleAll', money(k.handleAllTime)],
+      ['kTxns', nf(k.transactions, 0)],
+    ];
+    $('adminKpis').innerHTML = tiles.map(([key, v]) =>
+      '<div class="kpi" title="' + esc(t(key + 'Hint')) + '"><div class="kpi-label">' + esc(t(key)) +
+      '</div><div class="kpi-value">' + v + '</div></div>').join('');
+
+    $('adminMarkets').innerHTML = d.markets.length
+      ? d.markets.map(renderAdminMarket).join('')
+      : '<p class="hint">' + esc(t('noMarkets')) + '</p>';
+
+    $('adminUsers').innerHTML = '<thead><tr>' +
+      ['thUser', 'thName', 'thBalance', 'thOpen', 'thPnl', 'thBets', 'thGrant'].map((x) => '<th>' + esc(t(x)) + '</th>').join('') +
+      '</tr></thead><tbody>' + d.users.map((u) => '<tr>' +
+        '<td>' + esc(u.userId) + '</td><td>' + esc(u.displayName) + (u.status !== 'ACTIVE' ? ' <span class="badge">' + esc(u.status) + '</span>' : '') + '</td>' +
+        '<td class="num">' + money(u.balance) + '</td><td class="num">' + money(u.openStakes) + '</td>' +
+        '<td class="num">' + signed(u.settledPnl) + '</td><td class="num">' + nf(u.bets, 0) + '</td>' +
+        '<td><span class="inline-form"><input type="number" step="1" class="grant" data-u="' + esc(u.userId) + '" placeholder="100">' +
+        '<button data-act="grant" data-u="' + esc(u.userId) + '">' + esc(t('aGrant')) + '</button></span></td>' +
+        '</tr>').join('') + '</tbody>';
+
+    $('adminSettings').innerHTML = '<thead><tr>' +
+      ['thKey', 'thValue', 'thDescription', ''].map((x) => '<th>' + (x ? esc(t(x)) : '') + '</th>').join('') +
+      '</tr></thead><tbody>' + d.settings.map((s) => '<tr>' +
+        '<td><code>' + esc(s.key) + '</code></td>' +
+        '<td>' + (s.editable
+          ? '<input type="number" step="any" class="setting" data-k="' + esc(s.key) + '" value="' + esc(s.value) + '">'
+          : esc(s.value)) + '</td>' +
+        '<td class="wrap">' + esc(s.description) + '</td>' +
+        '<td>' + (s.editable ? '<button data-act="setting" data-k="' + esc(s.key) + '">' + esc(t('aSave')) + '</button>' : '') + '</td>' +
+        '</tr>').join('') + '</tbody>';
+  }
+
+  function actionButton(act, m, label, danger) {
+    const key = act + ':' + m.marketId;
+    const armed = admin.armed === key;
+    return '<button data-act="' + act + '" data-m="' + esc(m.marketId) + '" class="' + (danger || armed ? 'danger' : '') + '">' +
+      esc(armed ? t('aConfirm') : t(label)) + '</button>';
+  }
+
+  function renderAdminMarket(m) {
+    const live = m.status === 'OPEN' || m.status === 'CLOSED';
+    const meta = [t('mode' + m.mode), t('aFee') + ' ' + pct(m.feePct)];
+    if (m.seed !== null) meta.push(t('fSeed') + ' ' + nf(m.seed, 0));
+    if (m.liquidityB !== null) meta.push('b ' + nf(m.liquidityB, 0) + ' · ' + t('aMaxLoss') + ' ' + money(m.maxLoss));
+    if (m.closesAt && live) meta.push(t('closes') + ' ' + dt(m.closesAt));
+
+    const rows = m.outcomes.map((o) => '<tr class="' + (m.winningOutcomeId === o.outcomeId ? 'winner' : '') + '">' +
+      '<td>' + esc(tr(o.label)) + '</td><td class="num">' + nf(o.bets, 0) + '</td>' +
+      '<td class="num">' + money(o.stake) + '</td><td class="num">' + esc(live ? fmtOdds(o.odds) : '–') + '</td>' +
+      '<td class="num">' + (o.liability === null ? '–' : money(o.liability)) + '</td>' +
+      '<td class="num">' + signed(o.housePnlIfWins) + '</td></tr>').join('');
+
+    let actions = '';
+    if (live) {
+      actions = '<div class="row-actions">' +
+        (m.status === 'OPEN' ? actionButton('close', m, 'aClose') : '') +
+        '<select class="winner" data-m="' + esc(m.marketId) + '"><option value="">' + esc(t('aPickWinner')) + '</option>' +
+        m.outcomes.map((o) => '<option value="' + esc(o.outcomeId) + '">' + esc(tr(o.label)) + '</option>').join('') + '</select>' +
+        actionButton('settle', m, 'aSettle') + actionButton('void', m, 'aVoid') + '</div>';
+    }
+
+    const summary = live
+      ? t('aWorstCase') + ': ' + signed(m.worstCase)
+      : t('aResult') + ': ' + signed(m.result);
+
+    return '<article class="card admin-card ' + m.status.toLowerCase() + '">' +
+      '<div class="card-head"><h3>' + esc(tr(m.title)) + ' <span class="muted">' + esc(m.marketId) + '</span></h3>' +
+      '<span class="badge s-' + m.status.toLowerCase() + '">' + esc(t('status' + m.status)) + '</span></div>' +
+      '<div class="meta">' + esc(meta.join(' · ')) + '</div>' +
+      '<div class="stats"><span>' + esc(t('thBets')) + ': <strong>' + nf(m.bets, 0) + '</strong></span>' +
+      '<span>' + esc(t('aHandle')) + ': <strong>' + money(m.handle) + '</strong></span><span>' + summary + '</span></div>' +
+      '<div class="table-wrap"><table><thead><tr>' +
+      ['thPick', 'thBets', 'thStaked', 'thOddsNow', 'thLiability', 'thHouseIfWins'].map((x) => '<th>' + esc(t(x)) + '</th>').join('') +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>' + actions + '</article>';
+  }
+
+  // ---------- new market form ----------
+
+  function outcomeRow() {
+    return '<div class="outcome-row">' +
+      '<input name="labelEn" maxlength="60" data-i18n-ph="fLabelEn" placeholder="' + esc(t('fLabelEn')) + '">' +
+      '<input name="labelPt" maxlength="60" data-i18n-ph="fLabelPt" placeholder="' + esc(t('fLabelPt')) + '">' +
+      '<input name="houseProbability" type="number" min="0" step="any" data-for="HOUSE" data-i18n-ph="fProb" placeholder="' + esc(t('fProb')) + '">' +
+      '</div>';
+  }
+
+  function syncModeFields() {
+    const mode = $('newMarket').elements.mode.value;
+    $('newMarket').querySelectorAll('[data-for]').forEach((el) => el.classList.toggle('hidden', el.dataset.for !== mode));
+  }
+
+  function resetNewMarket() {
+    $('newMarket').reset();
+    $('outcomeRows').innerHTML = outcomeRow() + outcomeRow();
+    syncModeFields();
+  }
+
+  function submitNewMarket(e) {
+    e.preventDefault();
+    const f = $('newMarket').elements;
+    const val = (name) => f[name].value.trim();
+    const input = {
+      titleEn: val('titleEn'),
+      titlePt: val('titlePt'),
+      mode: f.mode.value,
+      houseFeePct: val('houseFeePct') === '' ? '' : Number(val('houseFeePct')) / 100,
+      seedPerOutcome: val('seedPerOutcome'),
+      liquidityB: val('liquidityB'),
+      closesAt: val('closesAt') ? new Date(val('closesAt')).toISOString() : '',
+      outcomes: Array.from($('outcomeRows').querySelectorAll('.outcome-row')).map((row) => ({
+        labelEn: row.querySelector('[name=labelEn]').value,
+        labelPt: row.querySelector('[name=labelPt]').value,
+        houseProbability: row.querySelector('[name=houseProbability]').value,
+      })),
+    };
+    adminDo('api_adminCreateMarket', [input], t('aCreated')).then(resetNewMarket);
+  }
+
+  // ---------- events ----------
+
+  function onAdminClick(e) {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const act = b.dataset.act;
+    const marketId = b.dataset.m;
+    if (act === 'grant') {
+      const input = $('adminUsers').querySelector('input.grant[data-u="' + b.dataset.u + '"]');
+      return adminDo('api_adminGrantCredits', [b.dataset.u, Number(input.value)]);
+    }
+    if (act === 'setting') {
+      const input = $('adminSettings').querySelector('input.setting[data-k="' + b.dataset.k + '"]');
+      return adminDo('api_adminUpdateSetting', [b.dataset.k, Number(input.value)], t('aSaved'));
+    }
+    // Market actions are irreversible: first click arms, second click runs.
+    const key = act + ':' + marketId;
+    if (admin.armed !== key) {
+      if (act === 'settle' && !$('adminMarkets').querySelector('select.winner[data-m="' + marketId + '"]').value) {
+        return toast(t('aPickWinner'));
+      }
+      admin.armed = key;
+      const winner = act === 'settle' ? $('adminMarkets').querySelector('select.winner[data-m="' + marketId + '"]').value : '';
+      renderAdmin();
+      if (winner) $('adminMarkets').querySelector('select.winner[data-m="' + marketId + '"]').value = winner;
+      return;
+    }
+    if (act === 'close') return adminDo('api_adminCloseMarket', [marketId]);
+    if (act === 'void') return adminDo('api_adminVoidMarket', [marketId]);
+    if (act === 'settle') {
+      const winner = $('adminMarkets').querySelector('select.winner[data-m="' + marketId + '"]').value;
+      return adminDo('api_adminSettleMarket', [marketId, winner]);
+    }
+  }
+
+  $('adminView').addEventListener('click', onAdminClick);
+  $('newMarket').addEventListener('submit', submitNewMarket);
+  $('newMarket').elements.mode.addEventListener('change', syncModeFields);
+  $('addOutcome').addEventListener('click', () => $('outcomeRows').insertAdjacentHTML('beforeend', outcomeRow()));
+  $('newUser').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = e.target.elements.displayName.value;
+    adminDo('api_adminAddUser', [name], t('aDone')).then(() => {
+      e.target.reset();
+      return call('api_bootstrap').then((data) => { state.users = data.users; renderUsers(); });
+    });
+  });
+  resetNewMarket();
+</script>

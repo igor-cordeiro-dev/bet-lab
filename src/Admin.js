@@ -121,6 +121,8 @@ function loadDemo_() {
       mode: MARKET_MODE.HOUSE, status: MARKET_STATUS.OPEN, houseFeePct: 0.05, closesAt: inDays(1), createdAt: now },
     { marketId: 'MKT-003', titleEn: 'Total goals: over or under 2.5', titlePt: 'Total de gols: mais ou menos de 2,5',
       mode: MARKET_MODE.P2P, status: MARKET_STATUS.OPEN, houseFeePct: 0, seedPerOutcome: 0, closesAt: inDays(7), createdAt: now },
+    { marketId: 'MKT-004', titleEn: 'Will the Lions win the league?', titlePt: 'Os Leões vão ganhar o campeonato?',
+      mode: MARKET_MODE.LMSR, status: MARKET_STATUS.OPEN, houseFeePct: 0.02, liquidityB: 300, closesAt: inDays(30), createdAt: now },
   ]);
 
   Repo.appendMany(SHEET.OUTCOMES, [
@@ -131,6 +133,8 @@ function loadDemo_() {
     { outcomeId: 'MKT-002-N', marketId: 'MKT-002', labelEn: 'No', labelPt: 'Não', houseProbability: 0.4, sortOrder: 2 },
     { outcomeId: 'MKT-003-O', marketId: 'MKT-003', labelEn: 'Over 2.5', labelPt: 'Mais de 2,5', sortOrder: 1 },
     { outcomeId: 'MKT-003-U', marketId: 'MKT-003', labelEn: 'Under 2.5', labelPt: 'Menos de 2,5', sortOrder: 2 },
+    { outcomeId: 'MKT-004-Y', marketId: 'MKT-004', labelEn: 'Yes', labelPt: 'Sim', sortOrder: 1 },
+    { outcomeId: 'MKT-004-N', marketId: 'MKT-004', labelEn: 'No', labelPt: 'Não', sortOrder: 2 },
   ]);
 
   Service.listUsers().forEach((u) => Service.grantCredits(u.userId, settings.STARTING_CREDITS, 'Demo starting credits'));
@@ -144,6 +148,8 @@ function loadDemo_() {
     ['U-002', 'MKT-002', 'MKT-002-N', 60],
     ['U-003', 'MKT-003', 'MKT-003-O', 70],
     ['U-004', 'MKT-003', 'MKT-003-U', 30],
+    ['U-002', 'MKT-004', 'MKT-004-Y', 120],
+    ['U-004', 'MKT-004', 'MKT-004-N', 50],
   ].forEach(([u, m, o, s]) => Service.placeBet(u, m, o, s));
 }
 

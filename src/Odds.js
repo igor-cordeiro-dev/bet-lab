@@ -56,6 +56,64 @@ const Odds = (() => {
   const priceFromOdds = (odds) => (odds ? 1 / odds : null);
   const oddsFromPrice = (price) => (price ? 1 / price : null);
 
+  // ---------- LMSR automated market maker ----------
+  //
+  // q_i = shares sold of outcome i (each pays 1.00 if i wins).
+  // Cost function C(q) = b * ln(sum_j exp(q_j / b)); price_i = exp(q_i / b) / sum_j exp(q_j / b).
+  // Buying costs C(q after) - C(q before), so a big order walks the price up gradually
+  // instead of jumping. b is the damping knob; the house's worst case is b * ln(n).
+
+  /** Instantaneous prices (sum to 1). */
+  function lmsrPrices(q, b) {
+    const ids = Object.keys(q);
+    const m = Math.max(...ids.map((id) => q[id]));
+    const w = {};
+    ids.forEach((id) => { w[id] = Math.exp((q[id] - m) / b); });
+    const s = sum(ids.map((id) => w[id]));
+    const prices = {};
+    ids.forEach((id) => { prices[id] = w[id] / s; });
+    return prices;
+  }
+
+  /**
+   * Shares of outcome `id` that `spend` credits buy (closed form, numerically stable):
+   *   exp((q_i + d) / b) = S * (exp(spend / b) - 1) + exp(q_i / b),  S = sum_j exp(q_j / b)
+   */
+  function lmsrSharesFor(q, b, id, spend) {
+    const ids = Object.keys(q);
+    const m = Math.max(...ids.map((k) => q[k]));
+    const s = sum(ids.map((k) => Math.exp((q[k] - m) / b)));
+    const inner = s * Math.expm1(spend / b) + Math.exp((q[id] - m) / b);
+    return m + b * Math.log(inner) - q[id];
+  }
+
+  /**
+   * Quote a purchase. The fee is taken from the stake first; the rest buys shares.
+   * @return {{shares: number, odds: number, avgPrice: number, priceBefore: number, priceAfter: number}}
+   */
+  function lmsrBuy(q, b, id, stake, feePct) {
+    const spend = stake * (1 - feePct);
+    const shares = lmsrSharesFor(q, b, id, spend);
+    const after = Object.assign({}, q, { [id]: q[id] + shares });
+    return {
+      shares,
+      odds: shares / stake,
+      avgPrice: stake / shares,
+      priceBefore: lmsrPrices(q, b)[id] / (1 - feePct),
+      priceAfter: lmsrPrices(after, b)[id] / (1 - feePct),
+    };
+  }
+
+  /** Decimal odds for a tiny bet on each outcome, fee included. */
+  function lmsrOdds(q, b, feePct) {
+    const p = lmsrPrices(q, b);
+    const odds = {};
+    Object.keys(p).forEach((id) => { odds[id] = (1 - feePct) / p[id]; });
+    return odds;
+  }
+
+  const lmsrMaxLoss = (b, outcomes) => b * Math.log(outcomes);
+
   /**
    * Settle a P2P market. If nobody backed the winner, every stake is refunded.
    * @param {{txnId: string, accountId: string, outcomeId: string, stake: number}[]} bets
@@ -77,10 +135,13 @@ const Odds = (() => {
     return { odds, payouts, refunds: [], houseAmount: fromCents(totalC - paidC) };
   }
 
+  /** Shares a bet holds; older rows without Shares fall back to stake x odds. */
+  const sharesOf = (b) => (b.shares ? Number(b.shares) : Number(b.stake) * Number(b.oddsAtEntry));
+
   /**
-   * Settle a HOUSE market: each winning bet is paid at the odds locked at entry.
+   * Settle a HOUSE or LMSR market: each winning share pays 1.00 (= stake x locked odds).
    * houseAmount is the house P&L for the market (negative = house lost).
-   * @param {{txnId: string, accountId: string, outcomeId: string, stake: number, oddsAtEntry: number}[]} bets
+   * @param {{txnId: string, accountId: string, outcomeId: string, stake: number, oddsAtEntry: number, shares: ?number}[]} bets
    */
   function settleHouse(bets, winningOutcomeId) {
     const totalC = sum(bets.map((b) => toCents(b.stake)));
@@ -89,7 +150,7 @@ const Odds = (() => {
       .map((b) => ({
         txnId: b.txnId,
         accountId: b.accountId,
-        amount: fromCents(Math.floor(toCents(b.stake) * Number(b.oddsAtEntry))),
+        amount: fromCents(Math.floor(Math.round(sharesOf(b) * 1e6) / 1e4)),
       }));
     const paidC = sum(payouts.map((p) => toCents(p.amount)));
     return { odds: null, payouts, refunds: [], houseAmount: fromCents(totalC - paidC) };
@@ -107,7 +168,8 @@ const Odds = (() => {
 
   return {
     poolOdds, houseOdds, priceFromOdds, oddsFromPrice,
-    settleP2P, settleHouse, refundAll, toCents, fromCents,
+    lmsrPrices, lmsrSharesFor, lmsrBuy, lmsrOdds, lmsrMaxLoss,
+    settleP2P, settleHouse, refundAll, sharesOf, toCents, fromCents,
   };
 })();
 

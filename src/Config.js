@@ -2,11 +2,13 @@
  * Bet Lab — experimental learning project. Play credits only, no real money.
  *
  * Central configuration: sheet names, headers, enums and default settings.
+ *
+ * @OnlyCurrentDoc  Limits the script to the spreadsheet it is bound to.
  */
 
 const APP = Object.freeze({
   name: 'Bet Lab',
-  version: '0.1.0',
+  version: '0.2.0',
 });
 
 const SHEET = Object.freeze({
@@ -25,6 +27,7 @@ const HEADERS = Object.freeze({
   [SHEET.MARKETS]: [
     'Market Id', 'Title En', 'Title Pt', 'Mode', 'Status', 'House Fee Pct',
     'Seed Per Outcome', 'Closes At', 'Winning Outcome Id', 'Settled At', 'Created At',
+    'Liquidity B',
   ],
   [SHEET.OUTCOMES]: [
     'Outcome Id', 'Market Id', 'Label En', 'Label Pt', 'House Probability', 'Sort Order',
@@ -32,12 +35,15 @@ const HEADERS = Object.freeze({
   [SHEET.LEDGER]: [
     'Txn Id', 'Timestamp', 'Account Id', 'Txn Type', 'Market Id', 'Outcome Id',
     'Amount', 'Odds At Entry', 'Price At Entry', 'Related Txn Id', 'Status', 'Notes',
+    'Shares',
   ],
 });
+// New columns are only ever appended at the end, so existing sheets keep working.
 
 const MARKET_MODE = Object.freeze({
   P2P: 'P2P',     // users vs users, pari-mutuel pool
   HOUSE: 'HOUSE', // house sets prices and is the counterparty
+  LMSR: 'LMSR',   // automated market maker: damped, money-driven prices locked at purchase
 });
 
 const MARKET_STATUS = Object.freeze({
@@ -71,7 +77,18 @@ const DEFAULT_SETTINGS = Object.freeze([
   ['MIN_STAKE', 1, 'Smallest bet allowed'],
   ['MAX_STAKE', 500, 'Largest single bet allowed'],
   ['MAX_PRICE', 0.99, 'HOUSE mode: cap on price per share (keeps odds above 1.01)'],
+  ['DEFAULT_LIQUIDITY_B', 300, 'LMSR mode: liquidity b. Higher = calmer prices, house max loss = b x ln(outcomes)'],
 ]);
+
+const NUMERIC_SETTING_RANGES = Object.freeze({
+  DEFAULT_HOUSE_FEE_PCT: [0, 0.5],
+  DEFAULT_SEED_PER_OUTCOME: [0, 1e6],
+  STARTING_CREDITS: [0, 1e6],
+  MIN_STAKE: [0.01, 1e6],
+  MAX_STAKE: [0.01, 1e6],
+  MAX_PRICE: [0.5, 0.999],
+  DEFAULT_LIQUIDITY_B: [10, 1e6],
+});
 
 const DISCLAIMER = Object.freeze({
   en: 'Experimental learning project. Play credits only — no real money, no prizes, not offered to the public.',

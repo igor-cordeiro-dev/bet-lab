@@ -52,7 +52,7 @@ test('HOUSE settlement pays at locked odds', () => {
 test('void refunds every stake', () => {
   const { S } = demo();
   S.voidMarket('MKT-003');
-  assert.equal(S.account('U-004').balance, 1000 - 40);
+  assert.equal(S.account('U-004').balance, 1000 - 40 - 50);
   assert.ok(S.audit().ok);
 });
 
@@ -78,4 +78,61 @@ test('preview: HOUSE is locked, P2P shows estimate and if-closed-now', () => {
   // no fee, no seed: (70 + 30 + 10) / (30 + 10)
   assert.ok(Math.abs(p.oddsIfClosedNow - 110 / 40) < 1e-9);
   assert.ok(Math.abs(p.shares - 10 / p.price) < 1e-9);
+});
+
+test('LMSR market: locked shares, damped price, settles to zero', () => {
+  const { S } = demo();
+  const p = S.previewBet('MKT-004', 'MKT-004-Y', 500);
+  assert.ok(p.priceAfter > p.priceBefore, 'buying Yes pushes its price up');
+  assert.ok(p.shares > 500, 'shares bought at an average price below 1');
+  S.placeBet('U-001', 'MKT-004', 'MKT-004-Y', 500);
+  const r = S.settleMarket('MKT-004', 'MKT-004-Y');
+  assert.ok(r.houseAmount < 0, 'house subsidised the winners');
+  assert.ok(-r.houseAmount <= 300 * Math.log(2) + 0.01 + 170, 'loss bounded by b ln 2 plus fees collected');
+  assert.ok(S.audit().ok);
+});
+
+test('admin api: owner only, fails closed when the viewer is unknown', () => {
+  const { g } = demo();
+  assert.equal(g.api_bootstrap().isAdmin, true);
+  assert.ok(g.api_adminOverview().kpis.users === 4);
+  g.__viewer = '';
+  assert.equal(g.api_bootstrap().isAdmin, false);
+  assert.throws(() => g.api_adminOverview(), /NOT_ADMIN/);
+  g.__viewer = 'someone@example.com';
+  assert.throws(() => g.api_adminSettleMarket('MKT-001', 'MKT-001-A'), /NOT_ADMIN/);
+  assert.throws(() => g.api_adminGrantCredits('U-001', 1e6), /NOT_ADMIN/);
+});
+
+test('admin overview: KPIs, risk per outcome, no Dates', () => {
+  const { S } = demo();
+  const o = S.adminOverview();
+  assert.ok(!hasDate(o));
+  assert.equal(o.kpis.openMarkets, 4);
+  assert.equal(o.kpis.creditsHeld, 4000 - 100 - 150 - 50 - 40 - 80 - 60 - 70 - 30 - 120 - 50);
+  const house = o.markets.find((m) => m.marketId === 'MKT-002');
+  // if Yes wins the house pays 80 x 1.5873 = 126.98 on 140 staked
+  assert.equal(house.outcomes.find((x) => x.outcomeId === 'MKT-002-Y').housePnlIfWins, 13.02);
+  assert.ok(o.markets.find((m) => m.marketId === 'MKT-004').maxLoss > 0);
+  assert.ok(o.audit.ok);
+});
+
+test('admin: create market, add user, settings are validated', () => {
+  const { S } = demo();
+  const { marketId } = S.createMarket({
+    titleEn: 'Test', mode: 'LMSR', liquidityB: 500,
+    outcomes: [{ labelEn: 'A' }, { labelEn: 'B' }, { labelEn: '' }],
+  });
+  assert.equal(marketId, 'MKT-005');
+  assert.equal(S.outcomesOf(marketId).length, 2);
+  assert.throws(() => S.createMarket({ titleEn: 'x', mode: 'HOUSE', outcomes: [{ labelEn: 'A' }, { labelEn: 'B' }] }), /MISSING_PROBABILITIES/);
+  assert.throws(() => S.createMarket({ titleEn: 'x', mode: 'NOPE', outcomes: [] }), /INVALID_MODE/);
+  const { userId } = S.addUser('Eva');
+  assert.equal(userId, 'U-005');
+  assert.equal(S.account(userId).balance, 1000);
+  S.updateSetting('MAX_STAKE', 800);
+  S.placeBet(userId, marketId, marketId + '-1', 700);
+  assert.throws(() => S.updateSetting('HOUSE_ACCOUNT_ID', 'X'), /SETTING_NOT_EDITABLE/);
+  assert.throws(() => S.updateSetting('DEFAULT_HOUSE_FEE_PCT', 0.9), /INVALID_SETTING_VALUE/);
+  assert.throws(() => S.updateSetting('MIN_STAKE', 900), /INVALID_SETTING_VALUE/);
 });

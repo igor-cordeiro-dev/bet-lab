@@ -74,12 +74,20 @@ function chain() {
   return p;
 }
 
-/** Fresh backend with an empty spreadsheet. Returns the vm context (globals). */
+/**
+ * Fresh backend with an empty spreadsheet. Returns the vm context (globals).
+ * ctx.__viewer is the email Session.getActiveUser() reports ('' = hidden by Google).
+ */
 function loadBackend() {
   const ss = makeSpreadsheet();
   const alerts = [];
+  const OWNER = 'owner@example.com';
   const ctx = vm.createContext({
     console,
+    Session: {
+      getActiveUser: () => ({ getEmail: () => ctx.__viewer }),
+      getEffectiveUser: () => ({ getEmail: () => OWNER }),
+    },
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       getUi: () => ({ alert: (m) => alerts.push(m), createMenu: chain, prompt: chain, ButtonSet: {}, Button: {} }),
@@ -92,6 +100,7 @@ function loadBackend() {
     },
   });
   LOAD_ORDER.forEach((f) => vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx, { filename: f }));
+  ctx.__viewer = OWNER;
   ctx.__spreadsheet = ss;
   ctx.__alerts = alerts;
   ctx.$ = (expr) => vm.runInContext(expr, ctx);

@@ -60,6 +60,38 @@
   .primary { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 10px; font: inherit; font-weight: 700; cursor: pointer; }
   .primary:disabled { opacity: .6; }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; }
+  /* admin */
+  button { font: inherit; color: var(--text); background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { border: 0; }
+  button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
+  .muted { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .pos { color: var(--ok); } .neg { color: var(--bad); }
+  .audit { margin-top: 4px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; border: 1px solid var(--line); }
+  .audit.ok { color: var(--ok); } .audit.bad { color: var(--bad); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 12px; }
+  .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .kpi-label { color: var(--muted); font-size: 12px; }
+  .kpi-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .grid.wide { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+  @media (max-width: 480px) { .grid.wide { grid-template-columns: 1fr; } }
+  .admin-card { display: flex; flex-direction: column; gap: 8px; }
+  .admin-card table { font-size: 12px; }
+  .admin-card .table-wrap { border-radius: 8px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; }
+  tr.winner td { color: var(--ok); font-weight: 700; }
+  td.wrap { white-space: normal; min-width: 220px; color: var(--muted); }
+  .row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .form { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .form label { flex-direction: column; align-items: stretch; }
+  .form .outcome-rows, .form .row-actions, .form .hint { grid-column: 1 / -1; }
+  .outcome-row { display: grid; grid-template-columns: 1fr 1fr 130px; gap: 8px; margin-bottom: 6px; }
+  .inline-form { display: inline-flex; gap: 6px; margin-top: 8px; }
+  .inline-form input { width: 110px; }
+  #newUser input { width: 220px; }
+  input.setting { width: 110px; }
+
   .hidden { display: none !important; }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 24px 16px; }
 </style>

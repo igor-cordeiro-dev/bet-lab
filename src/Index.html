@@ -10,6 +10,10 @@
 
     <header class="topbar">
       <div class="brand">Bet Lab <span class="badge lab" data-i18n="labBadge"></span></div>
+      <nav class="seg hidden" id="views">
+        <button data-view="bet" class="on" data-i18n="viewBet"></button>
+        <button data-view="admin" data-i18n="viewAdmin"></button>
+      </nav>
       <div class="controls">
         <label><span data-i18n="oddsFormat"></span>
           <select id="fmt">
@@ -24,7 +28,48 @@
       </div>
     </header>
 
-    <main>
+    <main id="adminView" class="hidden">
+      <div id="adminAudit" class="audit"></div>
+      <div id="adminKpis" class="kpis"></div>
+
+      <h2 data-i18n="aMarkets"></h2>
+      <div id="adminMarkets" class="grid wide"></div>
+
+      <h2 data-i18n="aNewMarket"></h2>
+      <form id="newMarket" class="panel form">
+        <label><span data-i18n="fTitleEn"></span><input name="titleEn" maxlength="140" required></label>
+        <label><span data-i18n="fTitlePt"></span><input name="titlePt" maxlength="140"></label>
+        <label><span data-i18n="fMode"></span>
+          <select name="mode">
+            <option value="P2P" data-i18n="modeP2P"></option>
+            <option value="HOUSE" data-i18n="modeHOUSE"></option>
+            <option value="LMSR" data-i18n="modeLMSR"></option>
+          </select>
+        </label>
+        <label><span data-i18n="fFee"></span><input name="houseFeePct" type="number" min="0" max="50" step="0.1" data-i18n-ph="fDefault"></label>
+        <label data-for="P2P"><span data-i18n="fSeed"></span><input name="seedPerOutcome" type="number" min="0" step="1" data-i18n-ph="fDefault"></label>
+        <label data-for="LMSR"><span data-i18n="fLiquidity"></span><input name="liquidityB" type="number" min="10" step="10" data-i18n-ph="fDefault"></label>
+        <label><span data-i18n="fClosesAt"></span><input name="closesAt" type="datetime-local"></label>
+        <div class="outcome-rows" id="outcomeRows"></div>
+        <div class="row-actions">
+          <button type="button" id="addOutcome" data-i18n="fAddOutcome"></button>
+          <button type="submit" class="primary" data-i18n="fCreate"></button>
+        </div>
+        <p class="hint" data-i18n="fHint"></p>
+      </form>
+
+      <h2 data-i18n="aUsers"></h2>
+      <div class="table-wrap"><table id="adminUsers"></table></div>
+      <form id="newUser" class="inline-form">
+        <input name="displayName" maxlength="40" required data-i18n-ph="fUserName">
+        <button type="submit" data-i18n="fAddUser"></button>
+      </form>
+
+      <h2 data-i18n="aSettings"></h2>
+      <div class="table-wrap"><table id="adminSettings"></table></div>
+    </main>
+
+    <main id="betView">
       <section class="account">
         <label><span data-i18n="playingAs"></span>
           <select id="user"></select>
@@ -67,5 +112,6 @@
 
     <?!= include('I18n') ?>
     <?!= include('Client') ?>
+    <?!= include('AdminClient') ?>
   </body>
 </html>
