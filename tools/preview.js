@@ -44,7 +44,8 @@ http.createServer((req, res) => {
       let out;
       try { out = { result: g[m[1]](...JSON.parse(body || '[]')) }; } catch (e) { out = { error: e.message }; }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(out));
+      // Like google.script.run, drop null object fields (array items are kept).
+      res.end(JSON.stringify(out, function (k, v) { return v === null && !Array.isArray(this) ? undefined : v; }));
     });
     return;
   }

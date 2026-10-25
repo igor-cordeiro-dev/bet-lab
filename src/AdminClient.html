@@ -1,6 +1,7 @@
 <script>
   // Admin view. Only shown when the server says the viewer is the owner; every
-  // api_admin* call is checked again on the server.
+  // api_admin* call is checked again on the server. google.script.run drops null
+  // object fields, so optional values are tested with == null.
   const admin = { data: null, loading: false, armed: '' };
 
   const money = (x) => (x === null || x === undefined ? '–' : nf(x, 2));
@@ -86,14 +87,14 @@
   function renderAdminMarket(m) {
     const live = m.status === 'OPEN' || m.status === 'CLOSED';
     const meta = [t('mode' + m.mode), t('aFee') + ' ' + pct(m.feePct)];
-    if (m.seed !== null) meta.push(t('fSeed') + ' ' + nf(m.seed, 0));
-    if (m.liquidityB !== null) meta.push('b ' + nf(m.liquidityB, 0) + ' · ' + t('aMaxLoss') + ' ' + money(m.maxLoss));
+    if (m.seed != null) meta.push(t('fSeed') + ' ' + nf(m.seed, 0));
+    if (m.liquidityB != null) meta.push('b ' + nf(m.liquidityB, 0) + ' · ' + t('aMaxLoss') + ' ' + money(m.maxLoss));
     if (m.closesAt && live) meta.push(t('closes') + ' ' + dt(m.closesAt));
 
     const rows = m.outcomes.map((o) => '<tr class="' + (m.winningOutcomeId === o.outcomeId ? 'winner' : '') + '">' +
       '<td>' + esc(tr(o.label)) + '</td><td class="num">' + nf(o.bets, 0) + '</td>' +
       '<td class="num">' + money(o.stake) + '</td><td class="num">' + esc(live ? fmtOdds(o.odds) : '–') + '</td>' +
-      '<td class="num">' + (o.liability === null ? '–' : money(o.liability)) + '</td>' +
+      '<td class="num">' + money(o.liability) + '</td>' +
       '<td class="num">' + signed(o.housePnlIfWins) + '</td></tr>').join('');
 
     let actions = '';
