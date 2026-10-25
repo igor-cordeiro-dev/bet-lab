@@ -1,0 +1,237 @@
+<script>
+  const store = {
+    get(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } },
+  };
+
+  const state = {
+    lang: store.get('betlab.lang', (navigator.language || 'en').toLowerCase().startsWith('pt') ? 'pt' : 'en'),
+    fmt: store.get('betlab.fmt', 'decimal'),
+    userId: store.get('betlab.user', ''),
+    users: [],
+    markets: [],
+    account: null,
+    slip: null,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const t = (k) => (I18N[state.lang] && I18N[state.lang][k]) || I18N.en[k] || k;
+  const locale = () => (state.lang === 'pt' ? 'pt-BR' : 'en-US');
+  const nf = (x, dp) => new Intl.NumberFormat(locale(), { minimumFractionDigits: dp, maximumFractionDigits: dp }).format(x);
+  const dt = (iso) => (iso ? new Date(iso).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' }) : '');
+  const tr = (obj) => (obj ? obj[state.lang] || obj.en : '');
+
+  function fmtOdds(odds) {
+    if (!odds) return '–';
+    if (state.fmt === 'decimal') return nf(odds, 2);
+    const p = 1 / odds;
+    return nf(p * 100, 0) + '% · ' + nf(p, 2);
+  }
+
+  function call(fn, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args);
+    });
+  }
+
+  function errText(e) {
+    const m = String((e && e.message) || e).match(/[A-Z][A-Z_]{2,}/);
+    return m && I18N.en['err_' + m[0]] ? t('err_' + m[0]) : t('err_generic');
+  }
+
+  function toast(msg) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => el.classList.add('hidden'), 2500);
+  }
+
+  // ---------- rendering ----------
+
+  function applyI18n() {
+    document.documentElement.lang = state.lang === 'pt' ? 'pt-BR' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll('#lang button').forEach((b) => b.classList.toggle('on', b.dataset.lang === state.lang));
+    $('fmt').value = state.fmt;
+  }
+
+  function renderUsers() {
+    $('user').innerHTML = state.users.map((u) =>
+      '<option value="' + esc(u.userId) + '">' + esc(u.displayName) + ' (' + esc(u.userId) + ')</option>').join('');
+    if (!state.users.some((u) => u.userId === state.userId) && state.users.length) state.userId = state.users[0].userId;
+    $('user').value = state.userId;
+  }
+
+  function renderMarkets() {
+    if (!state.markets.length) { $('markets').innerHTML = '<p class="hint">' + esc(t('noMarkets')) + '</p>'; return; }
+    $('markets').innerHTML = state.markets.map((m) => {
+      const open = m.status === 'OPEN';
+      const outcomes = m.outcomes.map((o) => {
+        const won = m.winningOutcomeId === o.outcomeId;
+        return '<button class="outcome' + (won ? ' won' : '') + '" ' + (open && o.odds ? '' : 'disabled ') +
+          'data-m="' + esc(m.marketId) + '" data-o="' + esc(o.outcomeId) + '">' +
+          '<span>' + esc(tr(o.label)) + '</span><strong>' + (won ? '✓' : esc(fmtOdds(o.odds))) + '</strong></button>';
+      }).join('');
+      const meta = [t('mode' + m.mode)];
+      if (m.closesAt && open) meta.push(t('closes') + ' ' + dt(m.closesAt));
+      return '<article class="card ' + m.status.toLowerCase() + '">' +
+        '<div class="card-head"><h3>' + esc(tr(m.title)) + '</h3>' +
+        '<span class="badge s-' + m.status.toLowerCase() + '">' + esc(t('status' + m.status)) + '</span></div>' +
+        '<div class="meta">' + esc(meta.join(' · ')) + '</div>' +
+        '<div class="outcomes">' + outcomes + '</div>' +
+        (open ? '<div class="note">' + esc(t(m.mode === 'P2P' ? 'p2pNote' : 'houseNote')) + '</div>' : '') +
+        '</article>';
+    }).join('');
+  }
+
+  function renderAccount() {
+    const a = state.account;
+    $('balance').textContent = a ? nf(a.balance, 2) : '–';
+    if (!a || !a.bets.length) { $('bets').innerHTML = '<tr><td class="hint">' + esc(t('noBets')) + '</td></tr>'; return; }
+    const head = ['thWhen', 'thMarket', 'thPick', 'thStake', 'thOdds', 'thState', 'thReturn'].map((k) => '<th>' + esc(t(k)) + '</th>').join('');
+    const rows = a.bets.map((b) => '<tr>' +
+      '<td>' + esc(dt(b.timestamp)) + '</td>' +
+      '<td>' + esc(tr(b.marketTitle)) + '</td>' +
+      '<td>' + esc(tr(b.outcomeLabel)) + '</td>' +
+      '<td class="num">' + nf(b.stake, 2) + '</td>' +
+      '<td class="num">' + esc(fmtOdds(b.oddsAtEntry)) + (b.mode === 'P2P' ? '*' : '') + '</td>' +
+      '<td><span class="badge st-' + b.state.toLowerCase() + '">' + esc(t('state' + b.state)) + '</span></td>' +
+      '<td class="num">' + (b.returned ? nf(b.returned, 2) : '–') + '</td>' +
+      '</tr>').join('');
+    $('bets').innerHTML = '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody>';
+  }
+
+  function renderAll() {
+    applyI18n();
+    renderMarkets();
+    renderAccount();
+    if (state.slip) renderSlipHeader();
+  }
+
+  // ---------- bet slip ----------
+
+  function renderSlipHeader() {
+    const m = state.markets.find((x) => x.marketId === state.slip.marketId);
+    const o = m && m.outcomes.find((x) => x.outcomeId === state.slip.outcomeId);
+    $('slipMarket').textContent = m ? tr(m.title) : '';
+    $('slipOutcome').textContent = o ? tr(o.label) : '';
+    if (state.slip.preview) renderPreview(state.slip.preview);
+  }
+
+  function renderPreview(p) {
+    const lines = [];
+    const row = (k, v) => lines.push('<div class="row"><span>' + esc(t(k)) + '</span><strong>' + esc(v) + '</strong></div>');
+    row(p.mode === 'HOUSE' ? 'lockedOdds' : 'estOdds', fmtOdds(p.odds));
+    if (state.fmt === 'price') {
+      row('price', nf(p.price, 2));
+      row('shares', nf(p.shares, 2));
+    }
+    row('potentialReturn', nf(p.potentialReturn, 2));
+    if (p.mode === 'P2P') {
+      row('ifClosedNow', fmtOdds(p.oddsIfClosedNow) + ' → ' + nf(p.returnIfClosedNow, 2));
+      lines.push('<p class="hint">' + esc(t('p2pExplain')) + '</p>');
+    }
+    $('preview').innerHTML = lines.join('');
+  }
+
+  function openSlip(marketId, outcomeId) {
+    state.slip = { marketId, outcomeId, preview: null };
+    $('slipError').textContent = '';
+    $('preview').innerHTML = '';
+    $('stake').value = $('stake').value || '10';
+    $('slip').classList.remove('hidden');
+    renderSlipHeader();
+    refreshPreview();
+    $('stake').focus();
+  }
+
+  function closeSlip() {
+    state.slip = null;
+    $('slip').classList.add('hidden');
+  }
+
+  let previewTimer;
+  function refreshPreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
+      const s = state.slip;
+      if (!s) return;
+      const stake = $('stake').value;
+      call('api_previewBet', s.marketId, s.outcomeId, stake)
+        .then((p) => {
+          if (state.slip !== s) return;
+          s.preview = p;
+          $('slipError').textContent = '';
+          renderPreview(p);
+        })
+        .catch((e) => { $('preview').innerHTML = ''; $('slipError').textContent = errText(e); });
+    }, 250);
+  }
+
+  function placeBet() {
+    const s = state.slip;
+    if (!s) return;
+    const btn = $('placeBet');
+    btn.disabled = true;
+    call('api_placeBet', state.userId, s.marketId, s.outcomeId, $('stake').value)
+      .then(() => { closeSlip(); toast(t('betPlaced')); return reload(); })
+      .catch((e) => { $('slipError').textContent = errText(e); })
+      .finally(() => { btn.disabled = false; });
+  }
+
+  // ---------- data ----------
+
+  function reload() {
+    return Promise.all([
+      call('api_markets'),
+      state.userId ? call('api_account', state.userId) : Promise.resolve(null),
+    ]).then(([markets, account]) => {
+      state.markets = markets;
+      state.account = account;
+      renderAll();
+    }).catch((e) => toast(errText(e)));
+  }
+
+  function init() {
+    applyI18n();
+    $('lang').addEventListener('click', (e) => {
+      const lang = e.target.dataset && e.target.dataset.lang;
+      if (!lang) return;
+      state.lang = lang;
+      store.set('betlab.lang', lang);
+      renderAll();
+    });
+    $('fmt').addEventListener('change', (e) => {
+      state.fmt = e.target.value;
+      store.set('betlab.fmt', state.fmt);
+      renderAll();
+    });
+    $('user').addEventListener('change', (e) => {
+      state.userId = e.target.value;
+      store.set('betlab.user', state.userId);
+      reload();
+    });
+    $('markets').addEventListener('click', (e) => {
+      const b = e.target.closest('button.outcome');
+      if (b && !b.disabled) openSlip(b.dataset.m, b.dataset.o);
+    });
+    $('stake').addEventListener('input', refreshPreview);
+    $('placeBet').addEventListener('click', placeBet);
+    $('slipClose').addEventListener('click', closeSlip);
+    $('slip').addEventListener('click', (e) => { if (e.target.id === 'slip') closeSlip(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSlip(); });
+
+    call('api_bootstrap').then((data) => {
+      state.users = data.users;
+      state.markets = data.markets;
+      renderUsers();
+      store.set('betlab.user', state.userId);
+      renderAll();
+      return reload();
+    }).catch((e) => toast(errText(e)));
+  }
+
+  init();
+</script>

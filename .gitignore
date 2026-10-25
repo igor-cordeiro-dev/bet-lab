@@ -1,0 +1,9 @@
+# clasp: your script id and OAuth tokens stay local
+.clasp.json
+.clasprc.json
+
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.env

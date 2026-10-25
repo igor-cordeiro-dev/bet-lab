@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <?!= include('Styles') ?>
+  </head>
+  <body>
+    <div class="disclaimer" data-i18n="disclaimer"></div>
+
+    <header class="topbar">
+      <div class="brand">Bet Lab <span class="badge lab" data-i18n="labBadge"></span></div>
+      <div class="controls">
+        <label><span data-i18n="oddsFormat"></span>
+          <select id="fmt">
+            <option value="decimal" data-i18n="fmtDecimal"></option>
+            <option value="price" data-i18n="fmtPrice"></option>
+          </select>
+        </label>
+        <div class="seg" id="lang">
+          <button data-lang="en">EN</button>
+          <button data-lang="pt">PT</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="account">
+        <label><span data-i18n="playingAs"></span>
+          <select id="user"></select>
+        </label>
+        <div class="balance"><span data-i18n="balance"></span> <strong id="balance">–</strong> <span data-i18n="credits"></span></div>
+        <p class="hint" data-i18n="demoUserHint"></p>
+      </section>
+
+      <section>
+        <h2 data-i18n="markets"></h2>
+        <div id="markets" class="grid"></div>
+      </section>
+
+      <section>
+        <h2 data-i18n="myBets"></h2>
+        <div class="table-wrap"><table id="bets"></table></div>
+        <p class="hint" data-i18n="p2pStar"></p>
+      </section>
+    </main>
+
+    <div id="slip" class="slip hidden" role="dialog" aria-modal="true">
+      <div class="slip-card">
+        <button class="close" id="slipClose" aria-label="Close">×</button>
+        <div class="slip-market" id="slipMarket"></div>
+        <div class="slip-outcome" id="slipOutcome"></div>
+        <label><span data-i18n="stake"></span>
+          <input id="stake" type="number" min="1" step="1" inputmode="decimal">
+        </label>
+        <div id="preview" class="preview"></div>
+        <div id="slipError" class="error"></div>
+        <button id="placeBet" class="primary" data-i18n="placeBet"></button>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <footer>
+      <span data-i18n="disclaimer"></span> · v<?= appVersion ?>
+    </footer>
+
+    <?!= include('I18n') ?>
+    <?!= include('Client') ?>
+  </body>
+</html>

@@ -1,0 +1,79 @@
+/**
+ * Bet Lab — experimental learning project. Play credits only, no real money.
+ *
+ * Central configuration: sheet names, headers, enums and default settings.
+ */
+
+const APP = Object.freeze({
+  name: 'Bet Lab',
+  version: '0.1.0',
+});
+
+const SHEET = Object.freeze({
+  README: 'Readme',
+  SETTINGS: 'Settings',
+  USERS: 'Users',
+  MARKETS: 'Markets',
+  OUTCOMES: 'Outcomes',
+  LEDGER: 'Ledger',
+});
+
+// Header row of every data tab. Repo.js maps "Market Id" <-> "marketId".
+const HEADERS = Object.freeze({
+  [SHEET.SETTINGS]: ['Key', 'Value', 'Description'],
+  [SHEET.USERS]: ['User Id', 'Display Name', 'Status', 'Created At'],
+  [SHEET.MARKETS]: [
+    'Market Id', 'Title En', 'Title Pt', 'Mode', 'Status', 'House Fee Pct',
+    'Seed Per Outcome', 'Closes At', 'Winning Outcome Id', 'Settled At', 'Created At',
+  ],
+  [SHEET.OUTCOMES]: [
+    'Outcome Id', 'Market Id', 'Label En', 'Label Pt', 'House Probability', 'Sort Order',
+  ],
+  [SHEET.LEDGER]: [
+    'Txn Id', 'Timestamp', 'Account Id', 'Txn Type', 'Market Id', 'Outcome Id',
+    'Amount', 'Odds At Entry', 'Price At Entry', 'Related Txn Id', 'Status', 'Notes',
+  ],
+});
+
+const MARKET_MODE = Object.freeze({
+  P2P: 'P2P',     // users vs users, pari-mutuel pool
+  HOUSE: 'HOUSE', // house sets prices and is the counterparty
+});
+
+const MARKET_STATUS = Object.freeze({
+  OPEN: 'OPEN',
+  CLOSED: 'CLOSED',   // no new bets, waiting for result
+  SETTLED: 'SETTLED',
+  VOID: 'VOID',       // cancelled, all stakes refunded
+});
+
+const USER_STATUS = Object.freeze({ ACTIVE: 'ACTIVE', BLOCKED: 'BLOCKED' });
+
+// Amount is always signed from the point of view of Account Id.
+const TXN_TYPE = Object.freeze({
+  DEPOSIT: 'DEPOSIT',       // play credits granted by admin (+)
+  BET: 'BET',               // stake leaves the user (-)
+  PAYOUT: 'PAYOUT',         // winnings to the user (+)
+  REFUND: 'REFUND',         // stake returned on void (+)
+  FEE: 'FEE',               // P2P house fee, to the house account (+)
+  HOUSE_PNL: 'HOUSE_PNL',   // HOUSE-mode result, to the house account (+/-)
+  ADJUSTMENT: 'ADJUSTMENT', // manual correction (+/-)
+});
+
+const TXN_STATUS = Object.freeze({ POSTED: 'POSTED', REVERSED: 'REVERSED' });
+
+// Seeded into the Settings tab by setup. The sheet is the source of truth afterwards.
+const DEFAULT_SETTINGS = Object.freeze([
+  ['HOUSE_ACCOUNT_ID', 'HOUSE', 'Ledger account that receives fees and house P&L'],
+  ['DEFAULT_HOUSE_FEE_PCT', 0.03, 'Fee used for new markets (0 = no house fee). Hidden from users'],
+  ['DEFAULT_SEED_PER_OUTCOME', 50, 'Virtual credits per outcome, P2P display odds only'],
+  ['STARTING_CREDITS', 1000, 'Play credits granted to demo users'],
+  ['MIN_STAKE', 1, 'Smallest bet allowed'],
+  ['MAX_STAKE', 500, 'Largest single bet allowed'],
+  ['MAX_PRICE', 0.99, 'HOUSE mode: cap on price per share (keeps odds above 1.01)'],
+]);
+
+const DISCLAIMER = Object.freeze({
+  en: 'Experimental learning project. Play credits only — no real money, no prizes, not offered to the public.',
+  pt: 'Projeto experimental de aprendizado. Apenas créditos fictícios — sem dinheiro real, sem prêmios, não oferecido ao público.',
+});
