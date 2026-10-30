@@ -98,9 +98,34 @@
     }).join('');
   }
 
+  function renderOrders(a) {
+    const orders = (a && a.orders) || [];
+    $('ordersSection').classList.toggle('hidden', !orders.length);
+    if (!orders.length) return;
+    const head = ['thWhen', 'thMarket', 'thPick', 'thLimit', 'thBudget', 'thSpent', 'shares', 'thStatus', 'thExpires', '']
+      .map((k) => '<th>' + (k ? esc(t(k)) : '') + '</th>').join('');
+    const rows = orders.map((o) => '<tr>' +
+      '<td>' + esc(dt(o.createdAt)) + '</td>' +
+      '<td>' + esc(tr(o.marketTitle)) + '</td>' +
+      '<td>' + esc(tr(o.outcomeLabel)) + '</td>' +
+      '<td class="num">' + esc(fmtOdds(1 / o.limitPrice)) + '</td>' +
+      '<td class="num">' + nf(o.budget, 2) + '</td>' +
+      '<td class="num">' + nf(o.spent, 2) + '</td>' +
+      '<td class="num">' + nf(Math.floor(o.shares * 100) / 100, 2) + '</td>' +
+      '<td><span class="badge st-' + o.status.toLowerCase() + '">' + esc(t('order' + o.status)) + '</span></td>' +
+      '<td>' + esc(dt(o.expiresAt)) + '</td>' +
+      '<td>' + (o.status === 'OPEN' ? '<button data-cancel="' + esc(o.orderId) + '">' + esc(t('cancel')) + '</button>' : '') + '</td>' +
+      '</tr>').join('');
+    $('orders').innerHTML = '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody>';
+  }
+
   function renderAccount() {
     const a = state.account;
     $('balance').textContent = a ? nf(a.balance, 2) : '–';
+    $('reservedInfo').textContent = a && a.reserved
+      ? '· ' + t('available') + ' ' + nf(a.available, 2) + ' · ' + nf(a.reserved, 2) + ' ' + t('inOrders')
+      : '';
+    renderOrders(a);
     if (!a || !a.bets.length) { $('bets').innerHTML = '<tr><td class="hint">' + esc(t('noBets')) + '</td></tr>'; return; }
     const head = ['thWhen', 'thMarket', 'thPick', 'thStake', 'thOdds', 'thState', 'thReturn'].map((k) => '<th>' + esc(t(k)) + '</th>').join('');
     const rows = a.bets.map((b) => '<tr>' +
@@ -130,7 +155,26 @@
     const o = m && m.outcomes.find((x) => x.outcomeId === state.slip.outcomeId);
     $('slipMarket').textContent = m ? tr(m.title) : '';
     $('slipOutcome').textContent = o ? tr(o.label) : '';
-    if (state.slip.preview) renderPreview(state.slip.preview);
+    const limit = state.slip.kind === 'limit';
+    $('slipKind').classList.toggle('hidden', !(m && m.mode === 'LMSR'));
+    document.querySelectorAll('#slipKind button').forEach((b) => b.classList.toggle('on', b.dataset.kind === state.slip.kind));
+    $('limitFields').classList.toggle('hidden', !limit);
+    $('stakeLabel').textContent = t(limit ? 'budget' : 'stake');
+    $('placeBet').textContent = t(limit ? 'placeOrder' : 'placeBet');
+    if (state.slip.preview) (limit ? renderLimitPreview : renderPreview)(state.slip.preview);
+  }
+
+  function renderLimitPreview(p) {
+    const lines = [];
+    const row = (k, v) => lines.push('<div class="row"><span>' + esc(t(k)) + '</span><strong>' + esc(v) + '</strong></div>');
+    row('currentPrice', fmtOdds(1 / p.currentPrice));
+    row('thLimit', fmtOdds(1 / p.limitPrice));
+    if (p.fillNowStake > 0) {
+      row('fillsNow', nf(p.fillNowStake, 2) + ' → ' + nf(Math.floor(p.fillNowShares * 100) / 100, 2) + ' ' + t('shares').toLowerCase());
+    }
+    row('rests', nf(p.rests, 2));
+    row('minSharesAtLimit', '≥ ' + nf(Math.floor(p.sharesIfFullyFilledAtLimit * 100) / 100, 2));
+    $('preview').innerHTML = lines.join('');
   }
 
   function renderPreview(p) {
@@ -153,10 +197,15 @@
   }
 
   function openSlip(marketId, outcomeId) {
-    state.slip = { marketId, outcomeId, preview: null };
+    state.slip = { marketId, outcomeId, kind: 'market', preview: null };
     $('slipError').textContent = '';
     $('preview').innerHTML = '';
     $('stake').value = $('stake').value || '10';
+    // Default limit: 5 points below the current price
+    const m = state.markets.find((x) => x.marketId === marketId);
+    const o = m && m.outcomes.find((x) => x.outcomeId === outcomeId);
+    $('limitPrice').value = o && o.price ? Math.max(1, Math.round(o.price * 100) - 5) : 40;
+    $('limitExpiry').value = '';
     $('slip').classList.remove('hidden');
     renderSlipHeader();
     refreshPreview();
@@ -175,12 +224,16 @@
       const s = state.slip;
       if (!s) return;
       const stake = $('stake').value;
-      call('api_previewBet', s.marketId, s.outcomeId, stake)
+      const limit = s.kind === 'limit';
+      const req = limit
+        ? call('api_previewLimitOrder', s.marketId, s.outcomeId, Number($('limitPrice').value) / 100, stake)
+        : call('api_previewBet', s.marketId, s.outcomeId, stake);
+      req
         .then((p) => {
-          if (state.slip !== s) return;
+          if (state.slip !== s || (s.kind === 'limit') !== limit) return;
           s.preview = p;
           $('slipError').textContent = '';
-          renderPreview(p);
+          (limit ? renderLimitPreview : renderPreview)(p);
         })
         .catch((e) => { $('preview').innerHTML = ''; $('slipError').textContent = errText(e); });
     }, 250);
@@ -191,8 +244,16 @@
     if (!s) return;
     const btn = $('placeBet');
     btn.disabled = true;
-    call('api_placeBet', state.userId, s.marketId, s.outcomeId, $('stake').value)
-      .then(() => { closeSlip(); toast(t('betPlaced')); return reload(); })
+    const expiry = $('limitExpiry').value ? new Date($('limitExpiry').value).toISOString() : '';
+    const req = s.kind === 'limit'
+      ? call('api_placeLimitOrder', state.userId, s.marketId, s.outcomeId, Number($('limitPrice').value) / 100, $('stake').value, expiry)
+      : call('api_placeBet', state.userId, s.marketId, s.outcomeId, $('stake').value);
+    req
+      .then((r) => {
+        closeSlip();
+        toast(s.kind !== 'limit' ? t('betPlaced') : r.filledNow > 0 ? t('orderPartFilled') + ' ' + nf(r.filledNow, 2) : t('orderPlaced'));
+        return reload();
+      })
       .catch((e) => { $('slipError').textContent = errText(e); })
       .finally(() => { btn.disabled = false; });
   }
@@ -238,6 +299,24 @@
       if (b && !b.disabled) openSlip(b.dataset.m, b.dataset.o);
     });
     $('stake').addEventListener('input', refreshPreview);
+    $('limitPrice').addEventListener('input', refreshPreview);
+    $('slipKind').addEventListener('click', (e) => {
+      const kind = e.target.dataset && e.target.dataset.kind;
+      if (!kind || !state.slip) return;
+      state.slip.kind = kind;
+      state.slip.preview = null;
+      $('preview').innerHTML = '';
+      renderSlipHeader();
+      refreshPreview();
+    });
+    $('orders').addEventListener('click', (e) => {
+      const id = e.target.dataset && e.target.dataset.cancel;
+      if (!id) return;
+      e.target.disabled = true;
+      call('api_cancelOrder', state.userId, id)
+        .then(() => { toast(t('orderCancelled')); return reload(); })
+        .catch((err) => { toast(errText(err)); e.target.disabled = false; });
+    });
     $('placeBet').addEventListener('click', placeBet);
     $('slipClose').addEventListener('click', closeSlip);
     $('slip').addEventListener('click', (e) => { if (e.target.id === 'slip') closeSlip(); });

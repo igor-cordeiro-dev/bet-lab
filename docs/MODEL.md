@@ -84,6 +84,28 @@ buy      = pay C(q after) − C(q before)              closed form in Odds.lmsrS
 - **House worst case = b × ln(n)** (minus fees collected). Example: b = 300, 2 outcomes → 207.94.
 - Money still drives prices — no admin probabilities needed. Prices start equal.
 
+### Limit orders (LMSR markets only)
+
+"Buy Yes only while it costs 40% or less, up to 200 credits."
+
+- The order rests in the `Orders` tab. Its unspent budget is **reserved**:
+  `available = ledger balance − Σ (budget − spent)` of open orders.
+- After every trade on the market the engine re-checks resting orders, best
+  limit first, then oldest (price-time priority). An order buys exactly as much
+  as takes the displayed price up to its limit (`Odds.lmsrSpendToPrice`,
+  closed form), capped by its remaining budget. Fills can trigger other orders,
+  so it loops until nothing else fills.
+- If the price is already below the limit when the order is placed, part of it
+  fills immediately; the rest rests.
+- Every fill is a normal `BET` row in the Ledger (`Related Txn Id` = order id), so
+  settlement and the audit need nothing new.
+- Orders end as `FILLED`, `CANCELLED` (by the user, or when the market closes /
+  settles / is voided) or `EXPIRED` (optional `Expires At`).
+- Still no cash-out: orders only **buy**. Selling shares back is a separate decision.
+
+Why only LMSR: in HOUSE markets the price never moves, and in P2P pools the odds
+are not known until close, so a price limit has nothing to hold on to.
+
 ## Is the fee really invisible?
 
 The UI never shows the fee, the pools or the seed. But because odds are net of

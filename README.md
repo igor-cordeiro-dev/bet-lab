@@ -16,11 +16,12 @@ Built with **Google Sheets** (database + audit ledger) and **Google Apps Script*
 (backend + web app). Backend is 100% English; the web app UI is available in
 English and Portuguese.
 
-## Features (v0.2)
+## Features (v0.3)
 
 | Area | What it does |
 | --- | --- |
 | Market modes | `P2P` — users bet against each other in a pool (pari-mutuel). `HOUSE` — the house sets the prices and is the counterparty. `LMSR` — automated market maker: prices driven by bettors' money but damped by a liquidity parameter, locked at purchase, house loss capped at `b × ln(outcomes)`. |
+| Limit orders | On LMSR markets: buy only at or below a price, with a budget and optional expiry. Budget is reserved, fills happen automatically (possibly in parts) as other trades move the price, cancel any time. |
 | Admin view | Owner-only tab in the web app: ledger audit, KPIs, house risk per outcome, create / close / settle / void markets, users and credits, settings. |
 | Odds formats | Decimal odds (e.g. `2.50`) or prediction-market style (probability `40%` / price `0.40` per share that pays `1.00`). |
 | House fee | Per market, `0%` or more. Baked into the displayed odds and never shown to users. |
@@ -37,7 +38,7 @@ to run it yourself.
 src/               Apps Script project (pushed with clasp)
   appsscript.json  Manifest
   Config.js        Sheet names, headers, enums, defaults
-  Odds.js          Pure odds / settlement math (also runs in Node for tests)
+  Odds.js          Pure odds, LMSR, limit-order matching, settlement (also runs in Node)
   Repo.js          Sheet read/write helpers
   Service.js       Business rules: quotes, bets, settlement, audit
   Admin.js         Spreadsheet menu (admin-only actions)

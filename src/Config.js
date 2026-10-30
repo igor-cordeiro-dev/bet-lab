@@ -8,7 +8,7 @@
 
 const APP = Object.freeze({
   name: 'Bet Lab',
-  version: '0.2.0',
+  version: '0.3.0',
 });
 
 const SHEET = Object.freeze({
@@ -18,6 +18,7 @@ const SHEET = Object.freeze({
   MARKETS: 'Markets',
   OUTCOMES: 'Outcomes',
   LEDGER: 'Ledger',
+  ORDERS: 'Orders',
 });
 
 // Header row of every data tab. Repo.js maps "Market Id" <-> "marketId".
@@ -36,6 +37,12 @@ const HEADERS = Object.freeze({
     'Txn Id', 'Timestamp', 'Account Id', 'Txn Type', 'Market Id', 'Outcome Id',
     'Amount', 'Odds At Entry', 'Price At Entry', 'Related Txn Id', 'Status', 'Notes',
     'Shares',
+  ],
+  // Limit orders (LMSR markets). Not money movements: each fill posts a BET row to
+  // the Ledger. Budget - Spent of an open order is reserved from the user's balance.
+  [SHEET.ORDERS]: [
+    'Order Id', 'Created At', 'User Id', 'Market Id', 'Outcome Id', 'Limit Price',
+    'Budget', 'Spent', 'Shares', 'Status', 'Expires At', 'Updated At', 'Notes',
   ],
 });
 // New columns are only ever appended at the end, so existing sheets keep working.
@@ -67,6 +74,13 @@ const TXN_TYPE = Object.freeze({
 });
 
 const TXN_STATUS = Object.freeze({ POSTED: 'POSTED', REVERSED: 'REVERSED' });
+
+const ORDER_STATUS = Object.freeze({
+  OPEN: 'OPEN',           // resting, budget reserved
+  FILLED: 'FILLED',       // budget fully spent
+  CANCELLED: 'CANCELLED', // by the user, or the market stopped taking bets
+  EXPIRED: 'EXPIRED',     // Expires At passed
+});
 
 // Seeded into the Settings tab by setup. The sheet is the source of truth afterwards.
 const DEFAULT_SETTINGS = Object.freeze([

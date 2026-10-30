@@ -60,6 +60,13 @@
   .primary { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 10px; font: inherit; font-weight: 700; cursor: pointer; }
   .primary:disabled { opacity: .6; }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; }
+  /* limit orders */
+  #slipKind { align-self: flex-start; }
+  #limitFields { display: flex; flex-direction: column; gap: 8px; }
+  #limitFields label { justify-content: space-between; }
+  #limitFields input[type=datetime-local] { width: 200px; }
+  .st-filled { color: var(--ok); } .st-cancelled, .st-expired { color: var(--muted); }
+
   /* admin */
   button { font: inherit; color: var(--text); background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
   button:hover { border-color: var(--accent); }

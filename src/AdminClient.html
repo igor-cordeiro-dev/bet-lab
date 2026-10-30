@@ -46,6 +46,8 @@
       ['kWorstCase', signed(k.worstCaseOpen)],
       ['kHandleAll', money(k.handleAllTime)],
       ['kTxns', nf(k.transactions, 0)],
+      ['kOpenOrders', nf(k.openOrders || 0, 0)],
+      ['kReserved', money(k.reservedInOrders || 0)],
     ];
     $('adminKpis').innerHTML = tiles.map(([key, v]) =>
       '<div class="kpi" title="' + esc(t(key + 'Hint')) + '"><div class="kpi-label">' + esc(t(key)) +
@@ -115,7 +117,8 @@
       '<span class="badge s-' + m.status.toLowerCase() + '">' + esc(t('status' + m.status)) + '</span></div>' +
       '<div class="meta">' + esc(meta.join(' · ')) + '</div>' +
       '<div class="stats"><span>' + esc(t('thBets')) + ': <strong>' + nf(m.bets, 0) + '</strong></span>' +
-      '<span>' + esc(t('aHandle')) + ': <strong>' + money(m.handle) + '</strong></span><span>' + summary + '</span></div>' +
+      '<span>' + esc(t('aHandle')) + ': <strong>' + money(m.handle) + '</strong></span><span>' + summary + '</span>' +
+      (m.openOrders ? '<span>' + esc(t('kOpenOrders')) + ': <strong>' + nf(m.openOrders, 0) + '</strong></span>' : '') + '</div>' +
       '<div class="table-wrap"><table><thead><tr>' +
       ['thPick', 'thBets', 'thStaked', 'thOddsNow', 'thLiability', 'thHouseIfWins'].map((x) => '<th>' + esc(t(x)) + '</th>').join('') +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>' + actions + '</article>';

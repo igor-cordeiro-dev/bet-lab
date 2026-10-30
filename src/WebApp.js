@@ -52,6 +52,18 @@ function api_placeBet(userId, marketId, outcomeId, stake) {
   return Service.placeBet(userId, marketId, outcomeId, stake);
 }
 
+function api_previewLimitOrder(marketId, outcomeId, limitPrice, budget) {
+  return Service.previewLimitOrder(marketId, outcomeId, limitPrice, budget);
+}
+
+function api_placeLimitOrder(userId, marketId, outcomeId, limitPrice, budget, expiresAt) {
+  return Service.placeLimitOrder(userId, marketId, outcomeId, limitPrice, budget, expiresAt);
+}
+
+function api_cancelOrder(userId, orderId) {
+  return Service.cancelOrder(userId, orderId);
+}
+
 // ---------- admin (owner only) ----------
 
 function api_adminOverview() {

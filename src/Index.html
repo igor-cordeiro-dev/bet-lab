@@ -74,7 +74,8 @@
         <label><span data-i18n="playingAs"></span>
           <select id="user"></select>
         </label>
-        <div class="balance"><span data-i18n="balance"></span> <strong id="balance">–</strong> <span data-i18n="credits"></span></div>
+        <div class="balance"><span data-i18n="balance"></span> <strong id="balance">–</strong> <span data-i18n="credits"></span>
+          <span id="reservedInfo" class="hint"></span></div>
         <p class="hint" data-i18n="demoUserHint"></p>
       </section>
 
@@ -88,6 +89,11 @@
         <div class="table-wrap"><table id="bets"></table></div>
         <p class="hint" data-i18n="p2pStar"></p>
       </section>
+
+      <section id="ordersSection" class="hidden">
+        <h2 data-i18n="myOrders"></h2>
+        <div class="table-wrap"><table id="orders"></table></div>
+      </section>
     </main>
 
     <div id="slip" class="slip hidden" role="dialog" aria-modal="true">
@@ -95,9 +101,22 @@
         <button class="close" id="slipClose" aria-label="Close">×</button>
         <div class="slip-market" id="slipMarket"></div>
         <div class="slip-outcome" id="slipOutcome"></div>
-        <label><span data-i18n="stake"></span>
+        <div class="seg hidden" id="slipKind">
+          <button data-kind="market" data-i18n="kindMarket"></button>
+          <button data-kind="limit" data-i18n="kindLimit"></button>
+        </div>
+        <label><span id="stakeLabel" data-i18n="stake"></span>
           <input id="stake" type="number" min="1" step="1" inputmode="decimal">
         </label>
+        <div id="limitFields" class="hidden">
+          <label><span data-i18n="limitPrice"></span>
+            <input id="limitPrice" type="number" min="1" max="99" step="0.1" inputmode="decimal">
+          </label>
+          <label><span data-i18n="expiresAt"></span>
+            <input id="limitExpiry" type="datetime-local">
+          </label>
+          <p class="hint" data-i18n="limitHint"></p>
+        </div>
         <div id="preview" class="preview"></div>
         <div id="slipError" class="error"></div>
         <button id="placeBet" class="primary" data-i18n="placeBet"></button>

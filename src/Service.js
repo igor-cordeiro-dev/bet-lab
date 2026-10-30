@@ -208,7 +208,192 @@ const Service = (() => {
       })
       .reverse();
 
-    return { userId, balance: balanceOf(userId, ledger), bets };
+    const orderRows = Repo.readAll(SHEET.ORDERS);
+    const byId = marketsById();
+    const now = new Date();
+    const orders = orderRows
+      .filter((o) => o.userId === userId)
+      .map((o) => {
+        const m = markets[o.marketId] || {};
+        const oc = outcomes[o.outcomeId] || {};
+        return {
+          orderId: o.orderId,
+          createdAt: iso(o.createdAt),
+          marketTitle: { en: m.titleEn || o.marketId, pt: m.titlePt || m.titleEn || o.marketId },
+          outcomeLabel: { en: oc.labelEn || o.outcomeId, pt: oc.labelPt || oc.labelEn || o.outcomeId },
+          limitPrice: Number(o.limitPrice),
+          budget: Number(o.budget),
+          spent: num(o.spent, 0),
+          shares: num(o.shares, 0),
+          status: orderStatus(o, byId, now),
+          expiresAt: iso(o.expiresAt),
+        };
+      })
+      .reverse()
+      .slice(0, 30);
+
+    const balance = balanceOf(userId, ledger);
+    const reserved = reservedOf(userId, orderRows, byId, now);
+    return { userId, balance, reserved, available: Odds.fromCents(Odds.toCents(balance) - Odds.toCents(reserved)), bets, orders };
+  }
+
+  // ---------- limit orders (LMSR markets) ----------
+
+  function marketsById() {
+    const out = {};
+    Repo.readAll(SHEET.MARKETS).forEach((m) => { out[m.marketId] = m; });
+    return out;
+  }
+
+  /** OPEN in the sheet but expired, or on a market that stopped taking bets, is no longer open. */
+  function orderStatus(order, byId, now) {
+    if (order.status !== ORDER_STATUS.OPEN) return order.status;
+    if (order.expiresAt && new Date(order.expiresAt) <= now) return ORDER_STATUS.EXPIRED;
+    const m = byId[order.marketId];
+    if (!m || effectiveStatus(m) !== MARKET_STATUS.OPEN) return ORDER_STATUS.CANCELLED;
+    return ORDER_STATUS.OPEN;
+  }
+
+  const orderRemaining = (o) => Odds.fromCents(Odds.toCents(o.budget) - Odds.toCents(num(o.spent, 0)));
+
+  /** Credits held by a user's open orders (not yet spent). */
+  function reservedOf(userId, orderRows, byId, now) {
+    return sumBy(orderRows.filter((o) => o.userId === userId && orderStatus(o, byId, now) === ORDER_STATUS.OPEN), orderRemaining);
+  }
+
+  function availableOf(userId, ledger) {
+    const reserved = reservedOf(userId, Repo.readAll(SHEET.ORDERS), marketsById(), new Date());
+    return Odds.fromCents(Odds.toCents(balanceOf(userId, ledger)) - Odds.toCents(reserved));
+  }
+
+  /** Writes the final status of every still-OPEN order of a market (expired / market closed). */
+  function closeOrders(marketId, status, note) {
+    const now = new Date();
+    Repo.readAll(SHEET.ORDERS)
+      .filter((o) => o.marketId === marketId && o.status === ORDER_STATUS.OPEN)
+      .forEach((o) => Repo.update(SHEET.ORDERS, o._row, { status, updatedAt: now, notes: note }));
+  }
+
+  /**
+   * Fills every resting order of an LMSR market that the current price allows.
+   * Each fill posts a BET row (Related Txn Id = order id). Call inside the lock.
+   */
+  function matchOrders(market, settings) {
+    if (market.mode !== MARKET_MODE.LMSR || effectiveStatus(market) !== MARKET_STATUS.OPEN) return [];
+    const now = new Date();
+    const byId = { [market.marketId]: market };
+    const open = Repo.readAll(SHEET.ORDERS).filter((o) => o.marketId === market.marketId && o.status === ORDER_STATUS.OPEN);
+    open.filter((o) => orderStatus(o, byId, now) === ORDER_STATUS.EXPIRED)
+      .forEach((o) => Repo.update(SHEET.ORDERS, o._row, { status: ORDER_STATUS.EXPIRED, updatedAt: now }));
+    const live = open
+      .filter((o) => orderStatus(o, byId, now) === ORDER_STATUS.OPEN)
+      .sort((a, b) => Number(b.limitPrice) - Number(a.limitPrice) || new Date(a.createdAt) - new Date(b.createdAt));
+    if (!live.length) return [];
+
+    const ledger = Repo.readAll(SHEET.LEDGER);
+    const q = sharesByOutcome(ledger, market.marketId, outcomesOf(market.marketId));
+    const { fills } = Odds.lmsrMatchOrders(q, liquidityOf(market, settings), feeOf(market, settings),
+      live.map((o) => ({ orderId: o.orderId, outcomeId: o.outcomeId, limitPrice: Number(o.limitPrice), remaining: orderRemaining(o) })));
+    if (!fills.length) return [];
+
+    const rowsById = {};
+    live.forEach((o) => { rowsById[o.orderId] = o; });
+    const bets = fills.map((f, i) => ledgerRow({
+      txnId: Repo.nextId(SHEET.LEDGER, 'TX', 6, i),
+      accountId: rowsById[f.orderId].userId,
+      txnType: TXN_TYPE.BET,
+      marketId: market.marketId,
+      outcomeId: f.outcomeId,
+      amount: -f.stake,
+      oddsAtEntry: Math.round((f.shares / f.stake) * 10000) / 10000,
+      priceAtEntry: Math.round((f.stake / f.shares) * 10000) / 10000,
+      shares: round6(f.shares),
+      relatedTxnId: f.orderId,
+      notes: 'LMSR: limit order fill',
+    }));
+    Repo.appendMany(SHEET.LEDGER, bets);
+    fills.forEach((f) => {
+      const o = rowsById[f.orderId];
+      const spent = Odds.fromCents(Odds.toCents(num(o.spent, 0)) + Odds.toCents(f.stake));
+      Repo.update(SHEET.ORDERS, o._row, {
+        spent,
+        shares: round6(num(o.shares, 0) + f.shares),
+        status: Odds.toCents(o.budget) - Odds.toCents(spent) < 1 ? ORDER_STATUS.FILLED : ORDER_STATUS.OPEN,
+        updatedAt: now,
+      });
+    });
+    return fills;
+  }
+
+  function cleanLimitPrice(v) {
+    const p = Number(v);
+    if (!isFinite(p) || p < 0.01 || p > 0.99) fail('INVALID_LIMIT_PRICE');
+    return Math.round(p * 10000) / 10000;
+  }
+
+  /** What a limit order would do right now: fill part immediately, leave the rest resting. */
+  function previewLimitOrder(marketId, outcomeId, limitPrice, budget) {
+    const settings = Repo.settings();
+    const market = findMarket(marketId);
+    if (market.mode !== MARKET_MODE.LMSR) fail('LIMIT_ONLY_LMSR');
+    const outcomes = outcomesOf(marketId);
+    if (!outcomes.some((o) => o.outcomeId === outcomeId)) fail('OUTCOME_NOT_FOUND');
+    const p = cleanLimitPrice(limitPrice);
+    const s = cleanStake(budget, settings);
+    const ledger = Repo.readAll(SHEET.LEDGER);
+    const q = sharesByOutcome(ledger, marketId, outcomes);
+    const fee = feeOf(market, settings);
+    const b = liquidityOf(market, settings);
+    const r = Odds.lmsrMatchOrders(q, b, fee, [{ orderId: 'preview', outcomeId, limitPrice: p, remaining: s }]);
+    const f = r.fills[0] || { stake: 0, shares: 0 };
+    return {
+      limitPrice: p,
+      budget: s,
+      currentPrice: Odds.lmsrPrices(q, b)[outcomeId] / (1 - fee),
+      fillNowStake: f.stake,
+      fillNowShares: f.shares,
+      fillNowAvgPrice: f.shares ? f.stake / f.shares : null,
+      rests: Odds.fromCents(Odds.toCents(s) - Odds.toCents(f.stake)),
+      sharesIfFullyFilledAtLimit: s / p,
+    };
+  }
+
+  function placeLimitOrder(userId, marketId, outcomeId, limitPrice, budget, expiresAt) {
+    return withLock(() => {
+      const settings = Repo.settings();
+      findActiveUser(userId);
+      const market = findMarket(marketId);
+      if (market.mode !== MARKET_MODE.LMSR) fail('LIMIT_ONLY_LMSR');
+      if (effectiveStatus(market) !== MARKET_STATUS.OPEN) fail('MARKET_NOT_OPEN');
+      if (!outcomesOf(marketId).some((o) => o.outcomeId === outcomeId)) fail('OUTCOME_NOT_FOUND');
+      const p = cleanLimitPrice(limitPrice);
+      const s = cleanStake(budget, settings);
+      let expires = '';
+      if (expiresAt) {
+        expires = new Date(expiresAt);
+        if (isNaN(expires.getTime()) || expires <= new Date()) fail('INVALID_EXPIRY');
+      }
+      if (availableOf(userId, Repo.readAll(SHEET.LEDGER)) < s) fail('INSUFFICIENT_BALANCE');
+
+      const orderId = Repo.nextId(SHEET.ORDERS, 'ORD', 6);
+      const now = new Date();
+      Repo.append(SHEET.ORDERS, {
+        orderId, createdAt: now, userId, marketId, outcomeId, limitPrice: p, budget: s,
+        spent: 0, shares: 0, status: ORDER_STATUS.OPEN, expiresAt: expires, updatedAt: now,
+      });
+      const mine = matchOrders(market, settings).find((f) => f.orderId === orderId);
+      return { orderId, filledNow: mine ? mine.stake : 0, sharesNow: mine ? mine.shares : 0 };
+    });
+  }
+
+  function cancelOrder(userId, orderId) {
+    return withLock(() => {
+      const o = Repo.readAll(SHEET.ORDERS).find((r) => r.orderId === orderId && r.userId === userId);
+      if (!o) fail('ORDER_NOT_FOUND');
+      if (orderStatus(o, marketsById(), new Date()) !== ORDER_STATUS.OPEN) fail('ORDER_NOT_OPEN');
+      Repo.update(SHEET.ORDERS, o._row, { status: ORDER_STATUS.CANCELLED, updatedAt: new Date(), notes: 'Cancelled by user' });
+      return { orderId };
+    });
   }
 
   /**
@@ -277,7 +462,7 @@ const Service = (() => {
       if (!outcomes.some((o) => o.outcomeId === outcomeId)) fail('OUTCOME_NOT_FOUND');
       const s = cleanStake(stake, settings);
       const ledger = Repo.readAll(SHEET.LEDGER);
-      if (balanceOf(userId, ledger) < s) fail('INSUFFICIENT_BALANCE');
+      if (availableOf(userId, ledger) < s) fail('INSUFFICIENT_BALANCE');
 
       // HOUSE / LMSR: locked price and shares. P2P: estimate at entry, kept for the audit trail only.
       const p = priceBet(market, outcomes, ledger, settings, outcomeId, s);
@@ -296,6 +481,8 @@ const Service = (() => {
         shares: isPool ? '' : round6(p.shares),
         notes: isPool ? 'P2P: odds at entry are an estimate' : market.mode + ': odds locked',
       }));
+      // This bet moved the price; resting limit orders on other outcomes may now fill.
+      matchOrders(market, settings);
       return { txnId, balance: balanceOf(userId, Repo.readAll(SHEET.LEDGER)) };
     });
   }
@@ -320,6 +507,7 @@ const Service = (() => {
       const m = findMarket(marketId);
       if (m.status !== MARKET_STATUS.OPEN) fail('MARKET_NOT_OPEN');
       Repo.update(SHEET.MARKETS, m._row, { status: MARKET_STATUS.CLOSED });
+      closeOrders(marketId, ORDER_STATUS.CANCELLED, 'Market closed');
     });
   }
 
@@ -367,6 +555,7 @@ const Service = (() => {
         winningOutcomeId: isVoid ? '' : winningOutcomeId,
         settledAt: new Date(),
       });
+      closeOrders(marketId, ORDER_STATUS.CANCELLED, isVoid ? 'Market void' : 'Market settled');
       return { rows: rows.length, houseAmount: result.houseAmount, odds: result.odds };
     });
   }
@@ -377,7 +566,7 @@ const Service = (() => {
   /**
    * Integrity checks:
    * - every SETTLED / VOID market sums to exactly zero across all accounts;
-   * - no user balance is negative.
+   * - no user balance is negative, and open orders never reserve more than the balance.
    */
   function audit() {
     const ledger = Repo.readAll(SHEET.LEDGER).filter((t) => t.status === TXN_STATUS.POSTED);
@@ -390,9 +579,14 @@ const Service = (() => {
       lines.push(m.marketId + ' [' + m.status + '] net ' + Odds.fromCents(cents));
       if (final && cents !== 0) issues.push(m.marketId + ' does not sum to zero: ' + Odds.fromCents(cents));
     });
+    const orderRows = Repo.readAll(SHEET.ORDERS);
+    const byId = marketsById();
+    const now = new Date();
     Repo.readAll(SHEET.USERS).forEach((u) => {
       const b = balanceOf(u.userId, ledger);
       if (b < 0) issues.push(u.userId + ' has a negative balance: ' + b);
+      const reserved = reservedOf(u.userId, orderRows, byId, now);
+      if (reserved > b) issues.push(u.userId + ' has ' + reserved + ' reserved in orders but a balance of ' + b);
     });
     const settings = Repo.settings();
     lines.push('House balance: ' + balanceOf(settings.HOUSE_ACCOUNT_ID, ledger));
@@ -411,6 +605,9 @@ const Service = (() => {
     const posted = ledger.filter((t) => t.status === TXN_STATUS.POSTED);
     const allOutcomes = Repo.readAll(SHEET.OUTCOMES);
     const houseId = settings.HOUSE_ACCOUNT_ID;
+    const byId = marketsById();
+    const now = new Date();
+    const openOrders = Repo.readAll(SHEET.ORDERS).filter((o) => orderStatus(o, byId, now) === ORDER_STATUS.OPEN);
 
     const markets = Repo.readAll(SHEET.MARKETS).map((m) => {
       const status = effectiveStatus(m);
@@ -450,6 +647,7 @@ const Service = (() => {
         handle: sumBy(bets, (x) => x.stake),
         worstCase: live && bets.length ? Math.min(...byOutcome.map((o) => o.housePnlIfWins)) : null,
         result: live ? null : sumBy(houseRows, (t) => t.amount),
+        openOrders: openOrders.filter((o) => o.marketId === m.marketId).length,
         outcomes: byOutcome,
       };
     });
@@ -484,6 +682,8 @@ const Service = (() => {
         openHandle: sumBy(live, (m) => m.handle),
         worstCaseOpen: sumBy(live, (m) => Math.min(0, m.worstCase || 0)),
         transactions: posted.length,
+        openOrders: openOrders.length,
+        reservedInOrders: sumBy(openOrders, orderRemaining),
       },
       markets,
       users,
@@ -587,6 +787,7 @@ const Service = (() => {
 
   return {
     listUsers, listMarkets, account, previewBet, placeBet,
+    previewLimitOrder, placeLimitOrder, cancelOrder,
     grantCredits, closeMarket, settleMarket, voidMarket, audit,
     adminOverview, updateSetting, createMarket, addUser,
     findMarket, outcomesOf,

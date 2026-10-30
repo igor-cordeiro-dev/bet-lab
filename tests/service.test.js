@@ -136,3 +136,62 @@ test('admin: create market, add user, settings are validated', () => {
   assert.throws(() => S.updateSetting('DEFAULT_HOUSE_FEE_PCT', 0.9), /INVALID_SETTING_VALUE/);
   assert.throws(() => S.updateSetting('MIN_STAKE', 900), /INVALID_SETTING_VALUE/);
 });
+
+// ---------- limit orders ----------
+
+test('limit order: rests, reserves funds, fills when the price comes down', () => {
+  const { S, g } = demo();
+  // MKT-004: Yes ~57%. Alice wants Yes only at 40% or less, budget 200.
+  const o = S.placeLimitOrder('U-001', 'MKT-004', 'MKT-004-Y', 0.4, 200);
+  assert.equal(o.filledNow, 0, 'not marketable yet');
+  let a = S.account('U-001');
+  assert.equal(a.reserved, 200);
+  assert.equal(a.available, 820 - 200);
+  S.placeBet('U-001', 'MKT-001', 'MKT-001-A', 500); // 120 left available
+  assert.throws(() => S.placeBet('U-001', 'MKT-001', 'MKT-001-A', 200), /INSUFFICIENT_BALANCE/, 'reserved credits cannot be spent twice');
+
+  // Bruno buys a lot of No: Yes drops below 40% and Alice's order fills up to her limit
+  S.placeBet('U-002', 'MKT-004', 'MKT-004-N', 400);
+  a = S.account('U-001');
+  const order = a.orders.find((x) => x.orderId === o.orderId);
+  assert.ok(order.spent > 0, 'order filled at least partly');
+  const fill = g.$('Repo').readAll('Ledger').find((t) => t.relatedTxnId === o.orderId);
+  assert.equal(fill.txnType, 'BET');
+  assert.ok(fill.priceAtEntry <= 0.4 + 1e-4, 'never paid above the limit');
+  const yes = S.listMarkets().find((m) => m.marketId === 'MKT-004').outcomes.find((x) => x.outcomeId === 'MKT-004-Y');
+  assert.ok(yes.price <= 0.4 + 1e-3, 'order pulled Yes back up to (at most) its limit');
+  assert.equal(a.reserved, Math.round((200 - order.spent) * 100) / 100);
+  assert.ok(S.audit().ok);
+});
+
+test('limit order: marketable part fills at once, cancel releases the rest', () => {
+  const { S } = demo();
+  // Yes is ~57%: a 70% limit fills immediately until Yes reaches 70%, the rest rests
+  const o = S.placeLimitOrder('U-003', 'MKT-004', 'MKT-004-Y', 0.7, 500);
+  assert.ok(o.filledNow > 0 && o.filledNow < 500);
+  let a = S.account('U-003');
+  assert.ok(a.reserved > 0);
+  S.cancelOrder('U-003', o.orderId);
+  a = S.account('U-003');
+  assert.equal(a.reserved, 0);
+  assert.equal(a.orders[0].status, 'CANCELLED');
+  assert.throws(() => S.cancelOrder('U-003', o.orderId), /ORDER_NOT_OPEN/);
+  assert.throws(() => S.cancelOrder('U-001', o.orderId), /ORDER_NOT_FOUND/, 'cannot cancel someone else\'s order');
+});
+
+test('limit order: rules, expiry and settlement', () => {
+  const { S } = demo();
+  assert.throws(() => S.placeLimitOrder('U-001', 'MKT-001', 'MKT-001-A', 0.4, 10), /LIMIT_ONLY_LMSR/);
+  assert.throws(() => S.placeLimitOrder('U-001', 'MKT-004', 'MKT-004-Y', 1.2, 10), /INVALID_LIMIT_PRICE/);
+  assert.throws(() => S.placeLimitOrder('U-001', 'MKT-004', 'MKT-004-Y', 0.4, 10, '2000-01-01T00:00:00Z'), /INVALID_EXPIRY/);
+  assert.throws(() => S.placeLimitOrder('U-001', 'MKT-004', 'MKT-004-Y', 0.4, 900), /STAKE_TOO_HIGH|INSUFFICIENT_BALANCE/);
+  const o = S.placeLimitOrder('U-001', 'MKT-004', 'MKT-004-Y', 0.3, 100);
+  const p = S.previewLimitOrder('MKT-004', 'MKT-004-Y', 0.3, 100);
+  assert.equal(p.fillNowStake, 0);
+  assert.equal(p.rests, 100);
+  S.settleMarket('MKT-004', 'MKT-004-Y');
+  const a = S.account('U-001');
+  assert.equal(a.orders.find((x) => x.orderId === o.orderId).status, 'CANCELLED');
+  assert.equal(a.reserved, 0);
+  assert.ok(S.audit().ok);
+});

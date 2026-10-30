@@ -115,6 +115,57 @@ const Odds = (() => {
   const lmsrMaxLoss = (b, outcomes) => b * Math.log(outcomes);
 
   /**
+   * Amount (after fee) to spend on `id` so its raw price rises to `target`.
+   * With R = sum over the other outcomes of exp(q_j / b):
+   *   price_i = target  <=>  sum after = R / (1 - target),  cost = b * ln(sum after / sum before)
+   * Returns 0 when the price is already at or above target.
+   */
+  function lmsrSpendToPrice(q, b, id, target) {
+    const ids = Object.keys(q);
+    const m = Math.max(...ids.map((k) => q[k]));
+    const r = sum(ids.filter((k) => k !== id).map((k) => Math.exp((q[k] - m) / b)));
+    const s = r + Math.exp((q[id] - m) / b);
+    return Math.max(0, b * Math.log(r / ((1 - target) * s)));
+  }
+
+  /**
+   * Fill resting limit orders against the LMSR book.
+   * An order buys `id` only while its displayed price (fee included) is <= limitPrice,
+   * up to its remaining budget. Orders must come sorted by priority (best price, then oldest).
+   * A fill on one outcome lowers the others, which can trigger more orders, so this
+   * loops until nothing else fills.
+   * @param {{orderId, outcomeId, limitPrice, remaining}[]} orders
+   * @return {{q: Object, fills: {orderId, outcomeId, stake, shares}[]}} one aggregated fill per order
+   */
+  function lmsrMatchOrders(q0, b, feePct, orders) {
+    const q = Object.assign({}, q0);
+    const left = {};
+    const filled = {};
+    orders.forEach((o) => { left[o.orderId] = toCents(o.remaining); });
+    for (let round = 0, progress = true; progress && round < 100; round++) {
+      progress = false;
+      orders.forEach((o) => {
+        const target = Number(o.limitPrice) * (1 - feePct);
+        if (left[o.orderId] < 1 || !(o.outcomeId in q) || !(target > 0 && target < 1)) return;
+        const toLimitC = Math.floor((lmsrSpendToPrice(q, b, o.outcomeId, target) / (1 - feePct)) * 100 + 1e-9);
+        const stakeC = Math.min(left[o.orderId], toLimitC);
+        if (stakeC < 1) return;
+        const shares = lmsrSharesFor(q, b, o.outcomeId, fromCents(stakeC) * (1 - feePct));
+        q[o.outcomeId] += shares;
+        left[o.orderId] -= stakeC;
+        const f = filled[o.orderId] || (filled[o.orderId] = { orderId: o.orderId, outcomeId: o.outcomeId, stakeC: 0, shares: 0 });
+        f.stakeC += stakeC;
+        f.shares += shares;
+        progress = true;
+      });
+    }
+    const fills = Object.keys(filled).map((k) => ({
+      orderId: k, outcomeId: filled[k].outcomeId, stake: fromCents(filled[k].stakeC), shares: filled[k].shares,
+    }));
+    return { q, fills };
+  }
+
+  /**
    * Settle a P2P market. If nobody backed the winner, every stake is refunded.
    * @param {{txnId: string, accountId: string, outcomeId: string, stake: number}[]} bets
    * @return {{odds: ?number, payouts: Object[], refunds: Object[], houseAmount: number}}
@@ -168,7 +219,7 @@ const Odds = (() => {
 
   return {
     poolOdds, houseOdds, priceFromOdds, oddsFromPrice,
-    lmsrPrices, lmsrSharesFor, lmsrBuy, lmsrOdds, lmsrMaxLoss,
+    lmsrPrices, lmsrSharesFor, lmsrBuy, lmsrOdds, lmsrMaxLoss, lmsrSpendToPrice, lmsrMatchOrders,
     settleP2P, settleHouse, refundAll, sharesOf, toCents, fromCents,
   };
 })();

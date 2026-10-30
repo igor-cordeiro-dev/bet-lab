@@ -122,3 +122,34 @@ test('lmsr: house never loses more than b * ln(n)', () => {
   const loss = -Odds.settleHouse(bets, 'Y').houseAmount;
   assert.ok(loss > 0 && loss <= b * Math.log(2) + 0.01, `loss ${loss}`);
 });
+
+// ---------- LMSR limit orders ----------
+
+test('lmsrSpendToPrice: spending that amount lands exactly on the target price', () => {
+  const q = { Y: 30, N: 120, D: 10 };
+  const spend = Odds.lmsrSpendToPrice(q, 200, 'Y', 0.6);
+  const d = Odds.lmsrSharesFor(q, 200, 'Y', spend);
+  close(Odds.lmsrPrices({ Y: q.Y + d, N: q.N, D: q.D }, 200).Y, 0.6, 1e-9);
+  assert.equal(Odds.lmsrSpendToPrice(q, 200, 'N', 0.1), 0, 'already above target');
+});
+
+test('lmsrMatchOrders: rests above the price, fills up to the limit once the price drops', () => {
+  const b = 300;
+  const orders = [{ orderId: 'o1', outcomeId: 'Y', limitPrice: 0.4, remaining: 500 }];
+  // 50/50 book: a 40% limit on Yes cannot fill
+  assert.equal(Odds.lmsrMatchOrders({ Y: 0, N: 0 }, b, 0, orders).fills.length, 0);
+  // someone buys a lot of No -> Yes falls to ~18%, the order buys Yes back up to 40%
+  const afterNo = { Y: 0, N: Odds.lmsrSharesFor({ Y: 0, N: 0 }, b, 'N', 400) };
+  const r = Odds.lmsrMatchOrders(afterNo, b, 0, orders);
+  assert.equal(r.fills.length, 1);
+  assert.ok(r.fills[0].stake > 0 && r.fills[0].stake <= 500);
+  close(Odds.lmsrPrices(r.q, b).Y, 0.4, 1e-3);
+});
+
+test('lmsrMatchOrders: budget caps the fill, fee is respected', () => {
+  const b = 300;
+  const q = { Y: 0, N: Odds.lmsrSharesFor({ Y: 0, N: 0 }, b, 'N', 400) };
+  const r = Odds.lmsrMatchOrders(q, b, 0.02, [{ orderId: 'o1', outcomeId: 'Y', limitPrice: 0.4, remaining: 20 }]);
+  assert.equal(r.fills[0].stake, 20);
+  assert.ok(Odds.lmsrPrices(r.q, b).Y / 0.98 <= 0.4 + 1e-9, 'displayed price never above the limit');
+});

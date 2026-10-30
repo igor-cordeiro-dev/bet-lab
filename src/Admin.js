@@ -71,6 +71,7 @@ function setupSheets_() {
   markets.getRange(2, col(SHEET.MARKETS, 'Mode'), 999).setDataValidation(list(Object.values(MARKET_MODE)));
   markets.getRange(2, col(SHEET.MARKETS, 'Status'), 999).setDataValidation(list(Object.values(MARKET_STATUS)));
   Repo.sheet(SHEET.USERS).getRange(2, col(SHEET.USERS, 'Status'), 999).setDataValidation(list(Object.values(USER_STATUS)));
+  Repo.sheet(SHEET.ORDERS).getRange(2, col(SHEET.ORDERS, 'Status'), 999).setDataValidation(list(Object.values(ORDER_STATUS)));
 
   const sheet1 = ss.getSheetByName('Sheet1') || ss.getSheetByName('Página1');
   if (sheet1 && sheet1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(sheet1);
